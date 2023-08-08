@@ -452,3 +452,6 @@ defoption   synch
 defoption   waitpid
 
 defoption   file
+
+# Paging project
+defoption   paging
