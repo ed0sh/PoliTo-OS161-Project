@@ -455,3 +455,5 @@ defoption   file
 
 # Paging project
 defoption   paging
+
+optfile     paging vm/pt.c
