@@ -457,3 +457,4 @@ defoption   file
 defoption   paging
 
 optfile     paging  vm/swapfile.c
+optfile     paging vm/pt.c
