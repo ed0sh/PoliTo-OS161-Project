@@ -69,7 +69,11 @@ runprogram(char *progname)
 	KASSERT(proc_getas() == NULL);
 
 	/* Create a new address space. */
+#if OPT_PAGING
+	as = as_create(progname);
+#else
 	as = as_create();
+#endif
 	if (as == NULL) {
 		vfs_close(v);
 		return ENOMEM;
@@ -87,8 +91,10 @@ runprogram(char *progname)
 		return result;
 	}
 
+#if !OPT_PAGING
 	/* Done with the file now. */
 	vfs_close(v);
+#endif
 
 	/* Define the user stack in the address space */
 	result = as_define_stack(as, &stackptr);

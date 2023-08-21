@@ -217,6 +217,55 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 	 * to find where the phdr starts.
 	 */
 
+#if OPT_PAGING
+	for (i=0; i<eh.e_phnum; i++) {
+		off_t offset = eh.e_phoff + i*eh.e_phentsize;
+		uio_kinit(&iov, &ku, &ph, sizeof(ph), offset, UIO_READ);
+
+		result = VOP_READ(v, &ku);
+		if (result) {
+			return result;
+		}
+
+		if (ku.uio_resid != 0) {
+			/* short read; problem with executable? */
+			kprintf("ELF: short read on phdr - file truncated?\n");
+			return ENOEXEC;
+		}
+
+		switch (ph.p_type) {
+		    case PT_NULL: 
+				/* skip */ 
+				continue;
+		    case PT_PHDR: 
+				/* skip */ 
+				continue;
+		    case PT_MIPS_REGINFO: 
+				/* skip */ 
+				continue;
+		    case PT_LOAD:
+				break;
+		    default:
+				kprintf("loadelf: unknown segment type %d\n", ph.p_type);
+			return ENOEXEC;
+		}
+
+		result = as_define_region(as,
+								  ph.p_vaddr, 
+								  ph.p_memsz,
+								  (ph.p_flags & PF_R | ph.p_flags & PF_W | ph.p_flags & PF_X),
+								  ph.p_filesz,
+								  ph.p_offset);
+		if (result) {
+			return result;
+		}
+	}
+
+	result = as_prepare_load(as);
+	if (result) {
+		return result;
+	}
+#else
 	for (i=0; i<eh.e_phnum; i++) {
 		off_t offset = eh.e_phoff + i*eh.e_phentsize;
 		uio_kinit(&iov, &ku, &ph, sizeof(ph), offset, UIO_READ);
@@ -295,6 +344,7 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 			return result;
 		}
 	}
+#endif
 
 	result = as_complete_load(as);
 	if (result) {
@@ -305,3 +355,83 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 
 	return 0;
 }
+
+#if OPT_PAGING
+int load_page_from_elf(segment *seg, vaddr_t vaddr, paddr_t paddr) {
+	struct addrspace *as = proc_getas();
+	
+	vaddr_t page_target_addr;
+	off_t page_file_offset;
+	size_t page_mem_size, page_file_size;
+
+	uint32_t page_index_in_seg = (vaddr - (seg->base_vaddr & PAGE_FRAME)) / PAGE_SIZE;
+	page_target_addr = PADDR_TO_KVADDR(paddr & PAGE_FRAME);
+	page_file_offset = seg->file_offset;
+
+	if (page_index_in_seg == 0) {
+		/**
+		 *  page = 0 |page = 1 | ...
+		 * 
+		 * |0000xxxxx|xxxxxxxxx|xxxxxxxxx|xxxxxxx00|
+		 * ^    ^
+		 * |    (aligned_paddr + seg->base_vaddr_offset)
+		 * |
+		 * aligned_paddr
+		*/
+
+		page_target_addr += seg->base_vaddr_offset;
+		
+		page_mem_size = PAGE_SIZE - seg->base_vaddr_offset;
+		// In case the data ends before the page ends, we're not going to read till the end of the page
+		page_mem_size = page_mem_size > seg->mem_size ? seg->mem_size : page_mem_size;
+
+		page_file_size = PAGE_SIZE - seg->base_vaddr_offset;
+		page_file_size = page_file_size > seg->file_size ? seg->file_size : page_file_size;
+	
+	} else {
+		/**
+		 * E.g. reading page 2
+		 * 
+		 * |page = 0 |page = 1 |page = 2 | ...
+		 * 
+		 * |0000xxxxx|xxxxxxxxx|xxxxxxxxx|xxxxxxx00|
+		 * 	:	^	     	   ^		 :      :
+		 * 	:	|--------------|		 :      :
+		 *  	 page offset (to be added to the segment offset in the elf file)
+		 * 	:	^			   :		 :		^
+		 * 	:	|-------------------------------|
+		 * 		  segment mem_size / file_size  
+		 *  ^	:			   ^		 :      :
+		 *  |------------------|		 :      :
+		 *   (page_index_in_seg * PAGE_SIZE)    
+		 * 	^   ^			   :		 :      :
+		 *  |---|			   :		 :      :
+		 * 	 seg->base_vaddr_offset		       
+		 * 		               ^		 :		^
+		 * 					   |----------------|
+		 * 		 			page_mem_size / page_file_size
+		 *					   ^         ^
+		 *					   |---------|
+		 *				final page_mem_size / page_file_size (limited to one page at a time)
+		 *
+		*/
+		
+		page_file_offset += ((page_index_in_seg * PAGE_SIZE) - seg->base_vaddr_offset);
+		
+		page_mem_size = seg->mem_size - ((page_index_in_seg * PAGE_SIZE) - seg->base_vaddr_offset);
+		page_mem_size = page_mem_size > PAGE_SIZE ? PAGE_SIZE : page_mem_size;
+
+		page_file_size = seg->file_size - ((page_index_in_seg * PAGE_SIZE) - seg->base_vaddr_offset);
+		page_file_size = page_file_size > PAGE_SIZE ? PAGE_SIZE : page_file_size;
+	}
+
+    KASSERT(page_mem_size <= PAGE_SIZE);
+	KASSERT(page_file_size <= PAGE_SIZE);
+    KASSERT(page_file_offset - seg->file_offset <= seg->file_size);
+
+	int result = load_segment(as, as->v, page_file_offset, page_target_addr , page_mem_size, page_file_size, seg->perm & PF_X);
+	return result;
+
+}	
+
+#endif
