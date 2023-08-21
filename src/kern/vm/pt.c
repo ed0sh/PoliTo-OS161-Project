@@ -61,7 +61,7 @@ void pt_add_entry(pagetable *pt, vaddr_t vaddr, paddr_t paddr, uint32_t perm) {
     KASSERT(pt_index < pt->num_pages);    
     KASSERT(pt->pages[pt_index].status == PT_ENTRY_EMPTY || pt->pages[pt_index].status == PT_ENTRY_SWAPPED_OUT);
 
-    pt->pages[pt_index].paddr = aligned_vaddr;
+    pt->pages[pt_index].paddr = paddr;
     pt->pages[pt_index].perm = perm;
     pt->pages[pt_index].status = PT_ENTRY_VALID;
 }
@@ -91,7 +91,7 @@ void pt_swap_in(pagetable *pt, vaddr_t vaddr, paddr_t paddr, uint32_t perm) {
     pt_add_entry(pt, vaddr, paddr, perm);
 }
 
-void pt_swap_out(pagetable *pt, vaddr_t vaddr) {
+void pt_swap_out(pagetable *pt, vaddr_t vaddr, off_t swapfile_offset) {
     KASSERT(pt != NULL);
     KASSERT(pt->pages != NULL);
 
@@ -104,6 +104,7 @@ void pt_swap_out(pagetable *pt, vaddr_t vaddr) {
     KASSERT(pt->pages[pt_index].status == PT_ENTRY_VALID);
 
     pt->pages[pt_index].status = PT_ENTRY_SWAPPED_OUT;
+    pt->pages[pt_index].swapfile_offset = swapfile_offset;
 }
 
 void pt_destroy(pagetable *pt) {
@@ -112,4 +113,19 @@ void pt_destroy(pagetable *pt) {
 
     kfree(pt->pages);
     kfree(pt);
-}  
+}
+
+off_t pt_get_page_swapfile_offset(pagetable *pt, vaddr_t vaddr) {
+    KASSERT(pt != NULL);
+    KASSERT(pt->pages != NULL);
+
+    KASSERT(vaddr >= pt->start_vaddr);
+    KASSERT(vaddr - pt->start_vaddr <= PAGE_SIZE * pt->num_pages);
+
+    vaddr_t aligned_vaddr = vaddr & PAGE_FRAME;
+    uint32_t pt_index = (aligned_vaddr - pt->start_vaddr) / PAGE_SIZE;
+
+    KASSERT(pt->pages[pt_index].status == PT_ENTRY_SWAPPED_OUT);
+
+    return pt->pages[pt_index].swapfile_offset;
+}
