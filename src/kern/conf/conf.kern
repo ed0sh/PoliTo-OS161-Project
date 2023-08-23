@@ -459,3 +459,5 @@ defoption   paging
 optfile     paging  vm/swapfile.c
 optfile     paging vm/pt.c
 optfile     paging  vm/coremap.c
+optfile     paging  vm/pt.c
+optfile     paging  vm/segments.c

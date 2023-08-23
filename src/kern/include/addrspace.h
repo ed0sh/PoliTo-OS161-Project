@@ -37,8 +37,17 @@
 
 #include <vm.h>
 #include "opt-dumbvm.h"
+#include "opt-paging.h"
 
-struct vnode;
+#if OPT_PAGING
+
+#include <pt.h>
+#include <segments.h>
+#include <vnode.h>
+
+#define STACK_PAGES 18
+
+#endif
 
 
 /*
@@ -49,7 +58,14 @@ struct vnode;
  */
 
 struct addrspace {
-#if OPT_DUMBVM
+#if OPT_PAGING
+        segment *segments;      // Program segments
+        struct vnode *v;        // Program vnode
+        pagetable *pt;          // Process page table
+        size_t pt_num_pages;    // Page table's number of pages
+        struct lock *pt_lock;   // Page table lock
+        char *progname;         // Program name: main purpose is for as_copy
+#elif OPT_DUMBVM
         vaddr_t as_vbase1;
         paddr_t as_pbase1;
         size_t as_npages1;
@@ -103,21 +119,37 @@ struct addrspace {
  * functions are found in dumbvm.c.
  */
 
+#if OPT_PAGING
+struct addrspace *as_create(char *progname);
+#else
 struct addrspace *as_create(void);
+#endif
+
 int               as_copy(struct addrspace *src, struct addrspace **ret);
 void              as_activate(void);
 void              as_deactivate(void);
 void              as_destroy(struct addrspace *);
 
+#if OPT_PAGING
+int               as_define_region(struct addrspace *as,
+                     vaddr_t vaddr, size_t memsize,
+                     uint32_t permissions,
+                     size_t file_size, off_t file_offset);
+#else
 int               as_define_region(struct addrspace *as,
                                    vaddr_t vaddr, size_t sz,
                                    int readable,
                                    int writeable,
                                    int executable);
+#endif
+
 int               as_prepare_load(struct addrspace *as);
 int               as_complete_load(struct addrspace *as);
 int               as_define_stack(struct addrspace *as, vaddr_t *initstackptr);
 
+#if OPT_PAGING
+segment *as_find_segment(struct addrspace *as, vaddr_t vaddr);
+#endif
 
 /*
  * Functions in loadelf.c
