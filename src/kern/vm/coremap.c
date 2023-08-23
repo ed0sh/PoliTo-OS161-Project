@@ -372,9 +372,7 @@ static paddr_t getppage_user(vaddr_t vadd){
             lock_acquire(as->pt_lock);
             pt_swap_out(as->pt, coremap[victim_tmp].vaddr, offset);
             lock_release(as->pt_lock);
-
-            //seg_swap_out(victim_ps, offset, coremap[victim_tmp].vaddr);
-
+            
             //update coremap
             KASSERT(coremap[victim_tmp].type == USER_ENTRY);
 			KASSERT(coremap[victim_tmp].alloc_size == 1);
