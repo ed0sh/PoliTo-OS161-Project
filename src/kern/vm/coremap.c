@@ -7,6 +7,8 @@
 #include <coremap.h>
 #include <swapfile.h>
 #include <vm.h>
+#include <tlb.h>
+#include <vm_tlb.h>
 
 
 struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
@@ -256,7 +258,7 @@ called by kmalloc(), allocates some *kernel* space
 vaddr_t alloc_kpages(unsigned npages){
     paddr_t padd;
 
-    //suchvm_can_sleep();
+    my_vm_can_sleep();
 
     padd = getppages(npages);
     if (padd == 0)
@@ -293,14 +295,13 @@ allocates one page per time (on-demand) for user processes
 */
 static paddr_t getppage_user(vaddr_t vadd){
     struct addrspace *as;
-    // TODO: verificare con Edo i nomi delle variabili dei segmenti
     segment *victim_ps;
     paddr_t padd;
     paddr_t last_tmp, victim_tmp, victim_new;
     off_t offset;
     int res;
 
-    //TODO: suchvm_can_sleep();
+    my_vm_can_sleep();
 
     as = proc_getas();
     if (as == NULL)
