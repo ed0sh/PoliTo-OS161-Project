@@ -463,3 +463,4 @@ optfile     paging  vm/segments.c
 optfile     paging  vm/vm_tlb.c
 optfile     paging  vm/my_vm.c
 optfile     paging  vm/addrspace.c
+optfile     paging  vm/vmstats.c
