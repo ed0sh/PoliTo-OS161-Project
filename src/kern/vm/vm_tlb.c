@@ -6,6 +6,7 @@
 #include <tlb.h>
 #include <vm_tlb.h>
 #include <spl.h>
+#include <vmstats.h>
 
 
 // Round Robin TLB replacement algorithm
@@ -34,6 +35,9 @@ void tlb_load(uint32_t entryhi, uint32_t entrylo, int perm) {
     }
     if(victim == -1) {  // no free entry, use round robin
         victim = tlb_get_rr_victim();
+        vmstats_increment(VMSTATS_TLB_FAULTS_WITH_REPLACE);
+    } else {
+        vmstats_increment(VMSTATS_TLB_FAULTS_WITH_FREE);
     }
 
     entrylo = entrylo | TLBLO_VALID;
@@ -76,6 +80,8 @@ void tlb_invalidate(void) {
             }
         }
     #endif
+
+    vmstats_increment(VMSTATS_TLB_INVALIDATIONS);
 
     return;
 }

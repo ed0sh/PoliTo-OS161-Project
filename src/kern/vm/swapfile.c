@@ -6,6 +6,7 @@
 #include <vm.h>
 #include <bitmap.h>
 #include <swapfile.h>
+#include <vmstats.h>
 
 
 //spinlock for mutex to swapfile and bitmap
@@ -86,6 +87,8 @@ int swap_out(paddr_t paddr, off_t *swap_offset){
     //save position in swapfile in order to get it back later directly
     *swap_offset = offset;
 
+    vmstats_increment(VMSTATS_SWAPFILE_WRITES);
+
     return 0;
 }
 
@@ -119,6 +122,8 @@ int swap_in(paddr_t paddr, off_t swap_offset){
     spinlock_acquire(&swapfile_lock);
     bitmap_unmark(swapfile_map, index);
     spinlock_release(&swapfile_lock);
+
+    vmstats_increment(VMSTATS_PAGE_FAULTS_SWAPFILE);
 
     return 0;
 }
