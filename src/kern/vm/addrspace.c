@@ -40,6 +40,7 @@
 #include <vfs.h>
 #include <kern/fcntl.h>
 #include <elf.h>
+#include <vm_tlb.h>
 
 #endif
 
@@ -93,7 +94,7 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 	struct addrspace *newas;
 
 #if OPT_PAGING
-	// TODO: dumbvm_can_sleep(); ?
+	vm_can_sleep();
 
 	KASSERT(old != NULL);
 	KASSERT(old->progname != NULL);
@@ -149,7 +150,7 @@ void
 as_destroy(struct addrspace *as)
 {
 #if OPT_PAGING
-	// TODO: dumbvm_can_sleep(); ?
+	vm_can_sleep();
 
 	KASSERT(as != NULL);
 	KASSERT(as->v != NULL);
@@ -191,6 +192,7 @@ as_activate(void)
 		return;
 	}
 
+	tlb_invalidate();
 }
 
 void
@@ -218,7 +220,7 @@ as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,
 		uint32_t permissions, size_t file_size, off_t file_offset)
 {
 #if OPT_PAGING
-	// TODO: dumbvm_can_sleep(); ?
+	vm_can_sleep();
 
 
 	KASSERT(as != NULL);
@@ -264,7 +266,7 @@ int
 as_prepare_load(struct addrspace *as)
 {
 #if OPT_PAGING
-	// TODO: dumbvm_can_sleep(); ?
+	vm_can_sleep();
 
 	for (segment *curseg = as->segments; curseg != NULL; curseg = curseg->next_segment){
 		as->pt_num_pages += curseg->num_pages;
@@ -298,7 +300,7 @@ int
 as_complete_load(struct addrspace *as)
 {
 #if OPT_PAGING
-	// TODO: dumbvm_can_sleep(); ?
+	vm_can_sleep();
 #else
 	(void)as;
 #endif
@@ -309,7 +311,7 @@ int
 as_define_stack(struct addrspace *as, vaddr_t *stackptr)
 {
 #if OPT_PAGING
-	// TODO: dumbvm_can_sleep(); ?
+	vm_can_sleep();
 
 	size_t stack_size = STACK_PAGES * PAGE_SIZE;
 	if (as_define_region(as, USERSTACK - stack_size, stack_size, (PF_W | PF_R), 0, 0) != 0)
