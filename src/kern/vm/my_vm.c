@@ -8,19 +8,21 @@
 #include <pt.h>
 #include <my_vm.h>
 #include <addrspace.h>
+#include <vmstats.h>
 
 
 void vm_bootstrap(void) {
 	coremap_init();
     swapfile_init();
-    //statics_init();
+    vmstats_init();
 }
 
 
 void vm_shutdown(void){
     coremap_close();
     swapfile_close();
-    //statics_print();
+    vmstats_print();
+    vmstats_destroy();
 }
 
 
