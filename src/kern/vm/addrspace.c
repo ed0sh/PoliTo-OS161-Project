@@ -192,7 +192,10 @@ as_activate(void)
 		return;
 	}
 
+#if OPT_PAGING
 	tlb_invalidate();
+#endif
+
 }
 
 void
