@@ -3,7 +3,7 @@
 
 #include <types.h>
 #include <elf.h>
-#include <tlb.h>
+#include <machine/tlb.h>
 #include <vm_tlb.h>
 #include <spl.h>
 #include <vmstats.h>
@@ -27,10 +27,11 @@ void tlb_load(uint32_t entryhi, uint32_t entrylo, int perm) {
     // Disable interrupts on this CPU while frobbing the TLB
 	spl = splhigh();
 
-    for (i = 0; i < NUM_TLB, victim = -1; i++) {
+    for (i = 0; i < NUM_TLB; i++) {
         tlb_read(&v_hi, &p_lo, i);
         if (!(p_lo & TLBLO_VALID)) {
             victim=i;
+            break;
         }
     }
     if(victim == -1) {  // no free entry, use round robin
@@ -55,31 +56,28 @@ void tlb_load(uint32_t entryhi, uint32_t entrylo, int perm) {
 
 void tlb_invalidate(void) {
     int i, spl;
-    uint32_t v_hi, p_lo;
+
 
     // Disable interrupts on this CPU while frobbing the TLB
 	spl = splhigh();
 
     // clear all the valid bits
     for(i=0; i<NUM_TLB; i++) {
-        tlb_read(&v_hi, &p_lo, i);
-        if (p_lo & TLBLO_VALID) {
-            p_lo = p_lo & ~(1<<TLBLO_VALID);
-            tlb_write(v_hi, p_lo, i);
-        }
+        tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
     }
 
     splx(spl);
     
-    #if OPT_DEBUG_PAGING
-        // check if invalidation is correctly done
-        for(i=0; i<NUM_TLB; i++) {
-            tlb_read(&v_hi, &p_lo, i);
-            if (p_lo & TLBLO_VALID) {
-                panic("TLB not invalidated correctly.\n");
-            }
+#if OPT_DEBUG_PAGING
+    uint32_t v_hi, p_lo;
+    // check if invalidation is correctly done
+    for(i=0; i<NUM_TLB; i++) {
+        tlb_read(&v_hi, &p_lo, i);
+        if (p_lo & TLBLO_VALID) {
+            panic("TLB not invalidated correctly.\n");
         }
-    #endif
+    }
+#endif
 
     vmstats_increment(VMSTATS_TLB_INVALIDATIONS);
 

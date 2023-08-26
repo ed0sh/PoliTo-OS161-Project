@@ -160,5 +160,9 @@ segment *as_find_segment(struct addrspace *as, vaddr_t vaddr);
 
 int load_elf(struct vnode *v, vaddr_t *entrypoint);
 
+#if OPT_PAGING
+int load_page_from_elf(segment *seg, vaddr_t vaddr, paddr_t paddr);
+#endif
+
 
 #endif /* _ADDRSPACE_H_ */

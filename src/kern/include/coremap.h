@@ -18,21 +18,14 @@ struct coremap_entry {
     paddr_t prev_allocated, next_allocated;
 };
 
-int coremap_init();
-int coremap_close();
-static int isCoremapActive();
-static paddr_t search_free_pages(int npages);
-
-//funzioni per la gestione dell'allocazione di memoria
-// TODO: controllare quali funzioni vanno definite qua
-static paddr_t getfreeppages(unsigned long npages, int entry_type, struct addrspace *as, vaddr_t vadd);
-static paddr_t getppages(unsigned long npages);
-static int freeppages(paddr_t addr, unsigned long npages);
+int coremap_init(void);
+int coremap_close(void);
+// static paddr_t search_free_pages(int npages);
 
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
-paddr_t alloc_getppage_userupage(vaddr_t vaddr);
-void free_freeppage_userupage(paddr_t paddr);
+paddr_t getppage_user(vaddr_t vaddr);
+void freeppage_user(paddr_t paddr);
 
 
 #endif

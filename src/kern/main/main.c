@@ -50,6 +50,14 @@
 #include <test.h>
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig
+#include "opt-paging.h"
+
+#if OPT_PAGING
+
+#include <coremap.h>
+#include <my_vm.h>
+
+#endif
 
 
 /*
@@ -107,6 +115,9 @@ boot(void)
 
 	/* Early initialization. */
 	ram_bootstrap();
+#if OPT_PAGING
+	coremap_init();
+#endif
 	proc_bootstrap();
 	thread_bootstrap();
 	hardclock_bootstrap();
@@ -150,11 +161,19 @@ shutdown(void)
 
 	kprintf("Shutting down.\n");
 
+#if OPT_PAGING
+	vm_shutdown();
+#endif
+
 	vfs_clearbootfs();
 	vfs_clearcurdir();
 	vfs_unmountall();
 
 	thread_shutdown();
+
+#if OPT_PAGING
+	coremap_close();
+#endif
 
 	splhigh();
 }

@@ -1,5 +1,6 @@
 #include <vmstats.h>
 #include <synch.h>
+#include <lib.h>
 
 static unsigned int stats[VMSTATS_NUM];
 static unsigned int stats_initialized = 0;
@@ -32,7 +33,7 @@ void vmstats_init(void) {
 }
 
 void vmstats_increment(uint8_t stats_type) {
-    KASSERT(stats_type >= 0 && stats_type < VMSTATS_NUM);
+    KASSERT(stats_type < VMSTATS_NUM);
     KASSERT(stats_initialized);
 
     lock_acquire(stats_lock);

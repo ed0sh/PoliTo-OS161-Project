@@ -23,10 +23,11 @@ struct bitmap *swapfile_map;
 initializes a void swapfile, with defined dimension (default 9 MB)
 creates the associate bitmap (one entry for swapfile "page")
 */
-int swapfile_init(){
+int swapfile_init(void){
     int res;
 
-    res = vfs_open(SWAP_PATH, O_RDWR | O_CREAT, 0, &swapfile);
+    char *path = kstrdup(SWAP_PATH);
+    res = vfs_open(path, O_RDWR | O_CREAT, 0, &swapfile);
     if (res)
         panic("Failed to open swapfile\n");
     
@@ -39,7 +40,7 @@ int swapfile_init(){
 /*
 closes the swapfile and de-allocates the bitmap
 */
-int swapfile_close(){
+int swapfile_close(void){
     if (swapfile == NULL || swapfile_map == NULL)
         panic("Trying to close a null swapfile\n");
 
@@ -56,7 +57,7 @@ error with panic if the swapfile is full
 parameters: physical address of page to swap-out, pointer to swapfile offset where the page will be saved
 */
 int swap_out(paddr_t paddr, off_t *swap_offset){
-    int index;
+    unsigned int index;
     int res;
     off_t offset;
     struct iovec iov;

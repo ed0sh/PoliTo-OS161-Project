@@ -253,7 +253,7 @@ load_elf(struct vnode *v, vaddr_t *entrypoint)
 		result = as_define_region(as,
 								  ph.p_vaddr, 
 								  ph.p_memsz,
-								  (ph.p_flags & PF_R | ph.p_flags & PF_W | ph.p_flags & PF_X),
+								  ((ph.p_flags & PF_R) | (ph.p_flags & PF_W) | (ph.p_flags & PF_X)),
 								  ph.p_filesz,
 								  ph.p_offset);
 		if (result) {

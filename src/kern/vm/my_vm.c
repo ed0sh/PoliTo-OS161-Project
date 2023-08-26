@@ -4,8 +4,11 @@
 #include <types.h>
 #include <current.h>
 #include <cpu.h>
-#include <tlb.h>
+#include <machine/tlb.h>
 #include <vm.h>
+#include <synch.h>
+#include <proc.h>
+
 #include <coremap.h>
 #include <swapfile.h>
 #include <segments.h>
@@ -17,14 +20,16 @@
 
 
 void vm_bootstrap(void) {
-	coremap_init();
+	// TODO: check
+    // coremap_init();
     swapfile_init();
     vmstats_init();
 }
 
 
 void vm_shutdown(void){
-    coremap_close();
+    // TODO: check
+    // coremap_close();
     swapfile_close();
     vmstats_print();
     vmstats_destroy();
@@ -38,7 +43,7 @@ void vm_tlbshootdown(const struct tlbshootdown *ts) {
 
 
 // Check if we're in a context that can sleep
-static void vm_can_sleep(void) {
+void vm_can_sleep(void) {
     if (CURCPU_EXISTS()) {
 		/* must not hold spinlocks */
 		KASSERT(curcpu->c_spinlocks == 0);

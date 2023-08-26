@@ -11,7 +11,7 @@ typedef struct _segment {
     size_t file_size;           // The size of the data within the file
     size_t mem_size;            // Size of data to be loaded into memory
     size_t num_pages;           // Number of pages occupied by the current segment
-    segment *next_segment;      // Next program segment 
+    struct _segment *next_segment;      // Next program segment 
 } segment;
 
 segment *segment_init(uint32_t perm, vaddr_t base_vaddr, off_t base_vaddr_offset, off_t file_offset, size_t file_size, size_t mem_size, size_t num_pages, segment *next_segment);

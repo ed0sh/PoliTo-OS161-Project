@@ -7,8 +7,10 @@
 #include <coremap.h>
 #include <swapfile.h>
 #include <vm.h>
-#include <tlb.h>
+#include <machine/tlb.h>
 #include <vm_tlb.h>
+#include <synch.h>
+#include <my_vm.h>
 
 
 struct spinlock stealmem_lock = SPINLOCK_INITIALIZER;
@@ -19,28 +21,33 @@ struct spinlock victim_lock = SPINLOCK_INITIALIZER;
 //memory is seen as an array of coremap_entry (each one is a frame of 4096 B)
 struct coremap_entry *coremap = NULL;
 
-int num_ram_frames = 0;
+unsigned int num_ram_frames = 0;
 int is_active = 0;
 
 paddr_t victim = 0;
 paddr_t last_allocate = 0;
-int invalid_ref = 0;            //for allocation queue
+unsigned int invalid_ref = 0;            //for allocation queue
 
 /*
 allocates and initialize the coremap, according to current ramsize value
 */
-int coremap_init(){
+int coremap_init(void){
     if (is_active){
         kprintf("coremap already active\n");
         return 1;
     }
 
-    num_ram_frames = ((int)ram_getsize()) / PAGE_SIZE;
-    coremap = kmalloc(sizeof(struct coremap_entry) * num_ram_frames);
+    num_ram_frames = ((int)ram_getsize()) / PAGE_SIZE; 
+    
+    spinlock_acquire(&stealmem_lock);
+    paddr_t coremap_paddr = ram_stealmem((sizeof(struct coremap_entry) * num_ram_frames) / PAGE_SIZE);
+    coremap = (struct coremap_entry *)PADDR_TO_KVADDR(coremap_paddr);
+    spinlock_release(&stealmem_lock);
+
     if (coremap==NULL)
         panic("failed to allocate coremap\n");
     
-    for (int i=0; i<num_ram_frames; i++){
+    for (unsigned int i=0; i<num_ram_frames; i++){
         coremap[i].type = UNTRACKED_ENTRY;
         coremap[i].alloc_size = 0;
         coremap[i].vaddr = 0;
@@ -64,7 +71,7 @@ int coremap_init(){
 /*
 deletes and frees entire coremap
 */
-int coremap_close(){
+int coremap_close(void){
     if (is_active==0)
         panic("Error, coremap not found\n");
     
@@ -81,7 +88,7 @@ int coremap_close(){
 /*
 return true if a coremap exists
 */
-static int isCoremapActive(){
+static int isCoremapActive(void){
     int active;
     spinlock_acquire(&coremap_lock);
 	active = is_active;
@@ -94,7 +101,7 @@ static int isCoremapActive(){
 /*
 searches for a contiguos interval of free frame in memory
 if found returns the starting paddr
-*/
+
 static paddr_t search_free_pages(int npages){
     paddr_t addr = 0;
     int found = 0;
@@ -125,7 +132,7 @@ static paddr_t search_free_pages(int npages){
 
     return addr;
 }
-
+*/
 
 /*
 Memory management functions (replace dumbvm.c)
@@ -138,7 +145,7 @@ if found occupies them and returns the starting paddr
 static paddr_t getfreeppages(unsigned long npages, int entry_type, struct addrspace *as, vaddr_t vadd){
     paddr_t addr = 0;
     int found = -1;
-    int i,j;
+    unsigned int i, j;
 
     if (!isCoremapActive())
 		return 0;
@@ -186,14 +193,16 @@ get n pages to occupy, for kernel processes
 */
 static paddr_t getppages(unsigned long npages){
     paddr_t addr = 0;
-    int i;
+    unsigned int i;
 
     //search in freed pages
     addr = getfreeppages(npages, KERNEL_ENTRY, NULL, 0);
     
     //if addr is still 0, pages not found
     if (addr == 0){
+        spinlock_acquire(&stealmem_lock);
         addr = ram_stealmem(npages);
+        spinlock_release(&stealmem_lock);
 
         if (addr != 0){
             spinlock_acquire(&stealmem_lock);
@@ -227,12 +236,12 @@ free the selectd number of pages,
 starting from the given physical address
 */
 static int freeppages(paddr_t addr, unsigned long npages){
-    int i;
+    unsigned int i;
 
     if (!isCoremapActive())
 		return 0;
     
-    int start_addr = addr / PAGE_SIZE;
+    unsigned int start_addr = addr / PAGE_SIZE;
     if (start_addr > num_ram_frames)
         panic("given address out of bounds\n");
 
@@ -258,7 +267,7 @@ called by kmalloc(), allocates some *kernel* space
 vaddr_t alloc_kpages(unsigned npages){
     paddr_t padd;
 
-    my_vm_can_sleep();
+    vm_can_sleep();
 
     padd = getppages(npages);
     if (padd == 0)
@@ -293,15 +302,14 @@ User space management functions (with swap out/in)
 /*
 allocates one page per time (on-demand) for user processes
 */
-static paddr_t getppage_user(vaddr_t vadd){
+paddr_t getppage_user(vaddr_t vadd){
     struct addrspace *as;
-    segment *victim_ps;
     paddr_t padd;
     paddr_t last_tmp, victim_tmp, victim_new;
     off_t offset;
     int res;
 
-    my_vm_can_sleep();
+    vm_can_sleep();
 
     as = proc_getas();
     if (as == NULL)
@@ -368,7 +376,6 @@ static paddr_t getppage_user(vaddr_t vadd){
                 panic("swap out failed\n");
 
             spinlock_acquire(&coremap_lock);
-            victim_ps = as_find_segment(coremap[victim_tmp].as, coremap[victim_tmp].vaddr);
             //pt è in as, chiama pt_swap_out con quella pt, vadd e offset di swap
             lock_acquire(as->pt_lock);
             pt_swap_out(as->pt, coremap[victim_tmp].vaddr, offset);
@@ -404,7 +411,7 @@ static paddr_t getppage_user(vaddr_t vadd){
 frees a previuos allocated user page
 upgrades the linked list for victim's selection
 */
-static void freeppage_user(paddr_t paddr){
+void freeppage_user(paddr_t paddr){
     paddr_t new_last_all, new_victim;
 
     if (isCoremapActive()){
@@ -456,8 +463,8 @@ static void freeppage_user(paddr_t paddr){
 
         //update victim's info
         spinlock_acquire(&victim_lock);
-		new_last_all = last_allocate;
-		new_victim = victim;
+		last_allocate = new_last_all;
+		victim = new_victim;
 		spinlock_release(&victim_lock);
     }
 }

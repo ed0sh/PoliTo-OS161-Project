@@ -41,6 +41,7 @@
 #include <kern/fcntl.h>
 #include <elf.h>
 #include <vm_tlb.h>
+#include <my_vm.h>
 
 #endif
 
@@ -108,7 +109,7 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 #if OPT_PAGING
 	segment *newas_curseg = NULL;
 	for (segment *curseg = old->segments; curseg != NULL; curseg = curseg->next_segment) {
-		segment *new_seg = init_segment(
+		segment *new_seg = segment_init(
 			curseg->perm,
 			curseg->base_vaddr,
 			curseg->base_vaddr_offset,
@@ -131,7 +132,7 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 
 	pagetable *new_as_pt = NULL;
 	
-	int pt_copy_ret_val = pt_copy(old, &new_as_pt);
+	int pt_copy_ret_val = pt_copy(old->pt, &new_as_pt);
 	lock_release(old->pt_lock);
 	
 	if (pt_copy_ret_val != 0)
@@ -304,9 +305,9 @@ as_complete_load(struct addrspace *as)
 {
 #if OPT_PAGING
 	vm_can_sleep();
-#else
-	(void)as;
 #endif
+	(void)as;
+
 	return 0;
 }
 
