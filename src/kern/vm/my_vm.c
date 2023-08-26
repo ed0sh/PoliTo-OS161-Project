@@ -1,12 +1,17 @@
 /*   VM MANAGEMENT   */
 
+#include <kern/errno.h>
 #include <types.h>
+#include <current.h>
+#include <cpu.h>
+#include <tlb.h>
+#include <vm.h>
 #include <coremap.h>
 #include <swapfile.h>
-#include <vm.h>
 #include <segments.h>
 #include <pt.h>
 #include <my_vm.h>
+#include <vm_tlb.h>
 #include <addrspace.h>
 #include <vmstats.h>
 
@@ -75,37 +80,49 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
         return EFAULT;
     }
 
-    lock_acquire(as->pt_lock);
-    sg = as_find_segment(as, faultaddress); 
-    lock_release(as->pt_lock);
+    sg = as_find_segment(as, faultaddress);
     if (sg == NULL) {
         return EFAULT;
     }
 
-
-    // Management of the page inside the PT 
-    lock_acquire(as->pt_lock);
-    pt = as->pt;
-    page_status = pt_get_page(pt, faultaddress, &paddr, &perm);
-    lock_release(as->pt_lock);
-    if (page_status == PT_ENTRY_EMPTY) {                // not-initialized (0)
+    if (sg->base_vaddr == USERSTACK - sg->mem_size) {   // it's a stack page
+        
         paddr = getppage_user(faultaddress);            // allocate memory 
-        lock_acquire(as->pt_lock);  
-        load_page_from_elf(sg, faultaddress, paddr);    
-        if (sg->base_vaddr == USERSTACK - sg->mem_size) {   // it's a stack page
-            bzero((void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
+        bzero((void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
+    
+    } else {
 
+        // Management of the page inside the PT 
+        pt = as->pt;
+
+        lock_acquire(as->pt_lock);
+        page_status = pt_get_page(pt, faultaddress, &paddr, &perm);
+        lock_release(as->pt_lock);
+
+        if (page_status == PT_ENTRY_EMPTY) {                // not-initialized (0)
+            paddr = getppage_user(faultaddress);            // allocate memory 
+
+            load_page_from_elf(sg, faultaddress, paddr);
+
+            lock_acquire(as->pt_lock);  
+            pt_add_entry(pt, faultaddress, paddr, perm);    // add entry in pt  
+            lock_release(as->pt_lock);
+            
+
+        } else if (page_status == PT_ENTRY_SWAPPED_OUT) {   // swapped-out (1): retrive it from swapfile 
+            lock_acquire(as->pt_lock);  
+
+            swap_offset = pt_get_page_swapfile_offset(pt, faultaddress);
+            swap_in(paddr, swap_offset);
+            pt_swap_in(pt, faultaddress, paddr, perm);
+
+            lock_release(as->pt_lock);
+
+
+        } else if (page_status == PT_ENTRY_VALID) {         // valid (2)
+            // nothing to do // controlla cosa fanno gli altri
         }
-        pt_add_entry(pt, faultaddress, paddr, perm);    // add entry in pt  
-        lock_release(as->pt_lock);
-    } else if (page_status == PT_ENTRY_SWAPPED_OUT) {   // swapped-out (1): retrive it from swapfile 
-        lock_acquire(as->pt_lock);  
-        swap_offset = pt_get_page_swapfile_offset(pt, faultaddress);
-        swap_in(paddr, swap_offset);
-        pt_swap_in(pt, faultaddress, paddr, perm);
-        lock_release(as->pt_lock);
-    } else if (page_status == PT_ENTRY_VALID) {         // valid (2)
-        // nothing to do // controlla cosa fanno gli altri
+
     }
 
     /* make sure it's page-aligned */
@@ -118,7 +135,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
         tlb_load(faultaddress, paddr, perm);
     } else {
         tlb_read(&v_hi, &p_lo, index);
-        if (!(p_lo & TLBLO_VALID) || v_hi =! (uint32_t) faultaddress || p_lo =! (uint32_t)paddr) {
+        if (!(p_lo & TLBLO_VALID) || v_hi != (uint32_t) faultaddress || p_lo != (uint32_t)paddr) {
             tlb_load(faultaddress, paddr, perm);
         }
     }
