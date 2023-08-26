@@ -89,6 +89,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
         
         paddr = getppage_user(faultaddress);            // allocate memory 
         bzero((void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
+        vmstats_increment(VMSTATS_PAGE_FAULTS_ZEROED);
     
     } else {
 
@@ -108,6 +109,8 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
             pt_add_entry(pt, faultaddress, paddr, perm);    // add entry in pt  
             lock_release(as->pt_lock);
             
+            vmstats_increment(VMSTATS_PAGE_FAULTS_ELF);
+            vmstats_increment(VMSTATS_PAGE_FAULTS_DISK);
 
         } else if (page_status == PT_ENTRY_SWAPPED_OUT) {   // swapped-out (1): retrive it from swapfile 
             lock_acquire(as->pt_lock);  
@@ -118,9 +121,11 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
 
             lock_release(as->pt_lock);
 
+            vmstats_increment(VMSTATS_PAGE_FAULTS_DISK);
 
         } else if (page_status == PT_ENTRY_VALID) {         // valid (2)
             // nothing to do // controlla cosa fanno gli altri
+            vmstats_increment(VMSTATS_TLB_RELOADS);
         }
 
     }
@@ -140,6 +145,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
         }
     }
 
+    vmstats_increment(VMSTATS_TLB_FAULTS);
 
     return 0;
 }
