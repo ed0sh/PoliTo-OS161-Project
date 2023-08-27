@@ -77,20 +77,20 @@ uint8_t pt_get_page(pagetable *pt, vaddr_t vaddr, paddr_t *paddr, uint32_t *perm
     KASSERT(vaddr >= pt->start_vaddr);
     KASSERT(vaddr - pt->start_vaddr <= PAGE_SIZE * pt->num_pages);
 
-    // Avoid parameter set but not used
-    (void)paddr;
-    (void)perm;
-
     vaddr_t aligned_vaddr = vaddr & PAGE_FRAME;
     uint32_t pt_index = (aligned_vaddr - pt->start_vaddr) / PAGE_SIZE;
 
     if (pt->pages[pt_index].status == PT_ENTRY_VALID) {
-        paddr = &(pt->pages[pt_index].paddr);
-        perm = &(pt->pages[pt_index].perm);
+        *paddr = pt->pages[pt_index].paddr;
+        *perm = pt->pages[pt_index].perm;
     } else {
         paddr = NULL;
         perm = NULL;
     }
+
+    // Avoid parameter set but not used
+    (void)paddr;
+    (void)perm;
     
     return pt->pages[pt_index].status;
 }
