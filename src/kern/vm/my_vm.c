@@ -20,16 +20,12 @@
 
 
 void vm_bootstrap(void) {
-	// TODO: check
-    // coremap_init();
     swapfile_init();
     vmstats_init();
 }
 
 
 void vm_shutdown(void){
-    // TODO: check
-    // coremap_close();
     swapfile_close();
     vmstats_print();
     vmstats_destroy();
@@ -65,6 +61,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
     segment *sg;
     pagetable *pt;
 
+    vaddr_t aligned_faultaddress = faultaddress & PAGE_FRAME;
 
     switch(faulttype) {
         case VM_FAULT_READONLY:
@@ -92,7 +89,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
 
     if (sg->base_vaddr == USERSTACK - sg->mem_size) {   // it's a stack page
         
-        paddr = getppage_user(faultaddress);            // allocate memory 
+        paddr = getppage_user(aligned_faultaddress);            // allocate memory 
         bzero((void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
         vmstats_increment(VMSTATS_PAGE_FAULTS_ZEROED);
     
@@ -106,7 +103,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
         lock_release(as->pt_lock);
 
         if (page_status == PT_ENTRY_EMPTY) {                // not-initialized (0)
-            paddr = getppage_user(faultaddress);            // allocate memory 
+            paddr = getppage_user(aligned_faultaddress);            // allocate memory 
 
             load_page_from_elf(sg, faultaddress, paddr);
 
@@ -118,6 +115,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
             vmstats_increment(VMSTATS_PAGE_FAULTS_DISK);
 
         } else if (page_status == PT_ENTRY_SWAPPED_OUT) {   // swapped-out (1): retrive it from swapfile 
+            paddr = getppage_user(aligned_faultaddress);            // allocate memory 
             lock_acquire(as->pt_lock);  
 
             swap_offset = pt_get_page_swapfile_offset(pt, faultaddress);
