@@ -139,11 +139,8 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
 
     // Management of the entry inside TLB 
     index = tlb_probe((uint32_t)faultaddress, 0);
-    if (index < 0) {
-        tlb_load((uint32_t)faultaddress, (uint32_t)paddr, perm);
-    } else {
-        tlb_write((uint32_t)faultaddress, (uint32_t)paddr, index);
-    }
+    tlb_load((uint32_t)faultaddress, (uint32_t)paddr, perm, index);
+    
 
     vmstats_increment(VMSTATS_TLB_FAULTS);
 

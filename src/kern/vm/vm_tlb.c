@@ -20,25 +20,29 @@ int tlb_get_rr_victim(void) {
 
 
 // Load a new entry in tlb (if there is space use it, otherwise free it with RR algorithm)
-void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm) {
+void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm, int index) {
     uint32_t v_hi, p_lo;
     int i, victim=-1, spl;
 
     // Disable interrupts on this CPU while frobbing the TLB
 	spl = splhigh();
 
-    for (i = 0; i < NUM_TLB; i++) {
-        tlb_read(&v_hi, &p_lo, i);
-        if (!(p_lo & TLBLO_VALID)) {
-            victim=i;
-            break;
+    if (index < 0) {
+        for (i = 0; i < NUM_TLB; i++) {
+            tlb_read(&v_hi, &p_lo, i);
+            if (!(p_lo & TLBLO_VALID)) {
+                victim=i;   
+                vmstats_increment(VMSTATS_TLB_FAULTS_WITH_FREE);            
+                break;
+            }
         }
-    }
-    if(victim == -1) {  // no free entry, use round robin
-        victim = tlb_get_rr_victim();
-        vmstats_increment(VMSTATS_TLB_FAULTS_WITH_REPLACE);
+        if(victim == -1) {  // no free entry, use round robin
+            victim = tlb_get_rr_victim();
+            vmstats_increment(VMSTATS_TLB_FAULTS_WITH_REPLACE);
+        } 
     } else {
-        vmstats_increment(VMSTATS_TLB_FAULTS_WITH_FREE);
+        victim = index;
+        vmstats_increment(VMSTATS_TLB_FAULTS_WITH_REPLACE);
     }
 
     entrylo = entrylo | TLBLO_VALID;
