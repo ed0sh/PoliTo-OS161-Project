@@ -20,12 +20,13 @@ int tlb_get_rr_victim(void) {
 
 
 // Load a new entry in tlb (if there is space use it, otherwise free it with RR algorithm)
-void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm, int index) {
+void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm) {
     uint32_t v_hi, p_lo;
-    int i, victim=-1, spl;
+    int i, victim=-1, spl, index;
 
     // Disable interrupts on this CPU while frobbing the TLB
 	spl = splhigh();
+    index = tlb_probe(entryhi, 0);
 
     if (index < 0) {
         for (i = 0; i < NUM_TLB; i++) {

@@ -54,8 +54,7 @@ void vm_can_sleep(void) {
 int vm_fault(int faulttype, vaddr_t faultaddress) {
     uint8_t page_status;
     off_t swap_offset;
-	int index; 
-    uint32_t perm, v_hi, p_lo;
+    uint32_t perm;
 	paddr_t paddr;
 	struct addrspace *as;
     segment *sg;
@@ -138,9 +137,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
 
 
     // Management of the entry inside TLB 
-    index = tlb_probe((uint32_t)faultaddress, 0);
-    tlb_load((uint32_t)faultaddress, (uint32_t)paddr, perm, index);
-    
+    tlb_load((uint32_t)faultaddress, (uint32_t)paddr, perm);
 
     vmstats_increment(VMSTATS_TLB_FAULTS);
 
