@@ -50,11 +50,16 @@ void vmstats_print(void) {
     // but we still add a layer of security.
     lock_acquire(stats_lock);
 
-    kprintf("Virtual Memory with Demand Paging statistics\n\n");
-    kprintf("\tStats type\t|\tValue\n");
+    kprintf("--- 'Virtual Memory with Demand Paging' statistics ---\n\n");
+    kprintf("\tStats type\t\t\t|\tValue\n\n");
 
     for (int i = 0; i < VMSTATS_NUM; i++) {
-        kprintf("\t%s\t|\t%d\n", stats_names[i], stats[i]);
+        if (strlen(stats_names[i]) < 16)
+            kprintf("\t%s\t\t\t|\t%d\n", stats_names[i], stats[i]);
+        else if (strlen(stats_names[i]) >= 16 && strlen(stats_names[i]) < 25)
+            kprintf("\t%s\t\t|\t%d\n", stats_names[i], stats[i]);
+        else
+            kprintf("\t%s\t|\t%d\n", stats_names[i], stats[i]);
     }
 
     // Statistics consistency checks
