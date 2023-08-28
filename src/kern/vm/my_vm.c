@@ -153,7 +153,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
 #endif
 
     // Management of the entry inside TLB 
-    tlb_load((uint32_t)faultaddress, (uint32_t)paddr, perm);
+    tlb_load((uint32_t)aligned_faultaddress, (uint32_t)paddr, perm);
 
     vmstats_increment(VMSTATS_TLB_FAULTS);
 
