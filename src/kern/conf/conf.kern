@@ -455,6 +455,7 @@ defoption   file
 
 # Paging project
 defoption   paging
+defoption   debug_paging
 
 optfile     paging  vm/swapfile.c
 optfile     paging  vm/coremap.c

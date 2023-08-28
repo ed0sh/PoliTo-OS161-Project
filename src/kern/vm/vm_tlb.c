@@ -7,6 +7,14 @@
 #include <vm_tlb.h>
 #include <spl.h>
 #include <vmstats.h>
+#include <lib.h>
+#include "opt-debug_paging.h"
+
+#if OPT_DEBUG_PAGING
+#include <current.h>
+#include <proc.h>
+#include <thread.h>
+#endif
 
 
 // Round Robin TLB replacement algorithm
@@ -52,6 +60,10 @@ void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm) {
     }
 
     tlb_write(entryhi, entrylo, victim);
+
+#if OPT_DEBUG_PAGING
+    kprintf("vm page load in tlb: 0x%x -> 0x%x @ %d\n", entryhi, entrylo, victim);
+#endif
 
     splx(spl);
 

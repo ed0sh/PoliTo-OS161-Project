@@ -17,6 +17,7 @@
 #include <vm_tlb.h>
 #include <addrspace.h>
 #include <vmstats.h>
+#include "opt-debug_paging.h"
 
 
 void vm_bootstrap(void) {
@@ -135,6 +136,21 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
     /* make sure it's page-aligned */
 	KASSERT((paddr & PAGE_FRAME) == paddr);
 
+#if OPT_DEBUG_PAGING
+    uint32_t v_hi, p_lo;
+    uint32_t count_valid = 0;
+    uint32_t count_invalid = 0;
+    // check if invalidation is correctly done
+    for(int i = 0; i < NUM_TLB; i++) {
+        tlb_read(&v_hi, &p_lo, i);
+        if (p_lo & TLBLO_VALID) 
+            count_valid++;
+        else
+            count_invalid++;
+    }
+    
+    kprintf("TLB status: %d valid - %d invalid\n", count_valid, count_invalid);
+#endif
 
     // Management of the entry inside TLB 
     tlb_load((uint32_t)faultaddress, (uint32_t)paddr, perm);

@@ -38,4 +38,4 @@ options waitpid
 options file
 
 # Paging project
-options paging
+options paging# options debug_paging
