@@ -380,6 +380,8 @@ paddr_t getppage_user(vaddr_t vadd){
             lock_acquire(as->pt_lock);
             pt_swap_out(as->pt, coremap[victim_tmp].vaddr, offset);
             lock_release(as->pt_lock);
+
+            tlb_invalidate_entry(coremap[victim_tmp].vaddr);
             
             //update coremap
             KASSERT(coremap[victim_tmp].type == USER_ENTRY);

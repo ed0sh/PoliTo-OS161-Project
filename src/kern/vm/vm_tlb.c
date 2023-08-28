@@ -89,3 +89,4 @@ void tlb_invalidate(void) {
     return;
 }
 
+void tlb_invalidate_entry(vaddr_t vaddr) {	int i, spl;    // Disable interrupts on this CPU while frobbing the TLB	spl = splhigh();    // clear all the valid bits    if((i = tlb_probe(vaddr, 0)) >= 0)        tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);        splx(spl);    return;}
