@@ -280,14 +280,24 @@ as_prepare_load(struct addrspace *as)
 	lock_acquire(as->pt_lock);
 
 	segment *curseg = as->segments;
-	vaddr_t base_vaddr = curseg->base_vaddr;
+	vaddr_t base_vaddr1 = curseg->base_vaddr;
+	vaddr_t base_vaddr2 = 0;
+	size_t num_pages1 = curseg->num_pages;
+	size_t numpages_2 = 0;
 
 	while ((curseg = curseg->next_segment) != NULL) {
-		if (curseg->base_vaddr < base_vaddr)
-			base_vaddr = curseg->base_vaddr;
+		if (curseg->base_vaddr < base_vaddr1) {
+			base_vaddr2 = base_vaddr1;
+			numpages_2 = num_pages1;
+			base_vaddr1 = curseg->base_vaddr;
+			num_pages1 = curseg->num_pages;
+		} else {
+			base_vaddr2 = curseg->base_vaddr;
+			numpages_2 = curseg->num_pages;
+		}
 	}
 
-	as->pt = pt_init(base_vaddr, as->pt_num_pages);
+	as->pt = pt_init(base_vaddr1, num_pages1, base_vaddr2, numpages_2);
 
 	lock_release(as->pt_lock);
 
