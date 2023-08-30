@@ -211,7 +211,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
 ```
 
 # On-demand page loading
-On-demand page loading refers to the feature of modern kernels where process' data and code is loaded into physical as needed instead of pre-loading everything at start.<br>
+On-demand page loading refers to the feature of modern kernels where process data and code is loaded into physical as needed instead of pre-loading everything at start.<br>
 To support this feature, we introduced/redefined in OS 161 structures like: **page table**, **segments** (code, data and stack) and **address space**.<br>
 We also had to redefine how functions like `load_elf(...)` and `runprogram(...)` behaves.
 
@@ -250,21 +250,27 @@ It also carries information about the physical address (considered valid and ret
 
 ### Core concepts
 #### Initialization and deallocation
-The page table is initialized in the `as_prepare_load(...)`, once the address space and most importantly their segments has been initialized too.<br>
+The page table is initialized in the `as_prepare_load(...)`, once the address space and most importantly their segments has been initialized too.
+
 The space is freed only once the process is no more running, indeed the page table deallocation function `pt_destroy(...)` is called inside `as_destroy(...)`;
 
 #### Address transaltion
 The main point of our page table implementation is the address translation algorithm: 
 ```c
 /* kern/include/pt.c - pt_init(...) */
+[...]
 
 pt->start_vaddr = pt_start_vaddr & PAGE_FRAME;
 
+[...]
 
 /* kern/include/pt.c */
+[...]
 
 vaddr_t aligned_vaddr = vaddr & PAGE_FRAME;
 uint32_t pt_index = (aligned_vaddr - pt->start_vaddr) / PAGE_SIZE;
+
+[...]
 ```
 Each virtual address is first page-aligned, then compared with the page table `start_vaddr` and divided by `PAGE_SIZE` to get the index in the page vector, once there the path is straightforward.
 
@@ -301,8 +307,94 @@ Each segment is composed by a set of properties that we briefly describe:
 
 ### Core concepts
 #### Initialization and deallocation
-Segments are defined in the first - and now the only - complete read of the ELF file inside the `load_elf(...)`.<br>
+Segments are defined in the first - and now the only - complete read of the ELF file inside the `load_elf(...)`.
+
 The `as_define_region(...)` is responsible for correctly setting the previously defined fields, but only for *data* and *code*.<br>
-The stack segment insted is created by calling `as_define_stack(...)` from `runprogram(...)`.<br>
+The stack segment insted is created by calling `as_define_stack(...)` from `runprogram(...)`.
+
 The entire segment linked list is deallocated together with the process address space by calling `segments_destroy_linked_list(...)` inside `as_destroy(...)`.
 
+## Address space
+A basic implementation of the process address space would simply require the three program main segments, but in order to support on-demand page loading some other structures are required.
+
+### Data structure
+We chose to entirely reinvent the previously specified `struct addrspace` starting from scratch.
+
+```c
+/* kern/include/addrspace.h  */
+
+struct addrspace {
+    segment *segments;
+    struct vnode *v;
+    pagetable *pt;
+    size_t pt_num_pages;
+    struct lock *pt_lock;
+    char *progname;
+};
+```
+
+As described in the "**Segments**" section, we defined the three program segments as a linked list, where the head of that list is `segment *segments`.
+
+Another choice we already discussed is the use of a per-process page table. Here we can find its usage as `pagetable *pt` along with its dimension `size_t pt_num_pages` and a lock `struct lock *pt_lock` that avoid operations to be performed on it simultaneously.
+
+We also included a pointer to the program vnode `struct vnode *v` in order to be able to load pages once required.
+
+Finally, the program name `char *progname` is principally used while in `as_copy(...)`.
+
+### Core concepts
+#### Initialization and deallocation
+The `struct addrspace` is initialized inside the function `as_create(...)`, whose main tasks are the struct allocation (using teh kmalloc) and the creation of the lock `pt_lock`.
+
+Deallocation happens inside `as_destroy(...)` which: closes the open vnode by calling `vfs_close(as->v)`, destroys the page table `pt_destroy(as->pt)` and its lock `lock_destroy(as->pt_lock)`, deallocates the list of segments with `segments_destroy_linked_list(as->segments)` and finally frees the memory allocated for the struct itself with `kfree(as)`.
+
+#### Page table initialization
+The page table can't be initialized along with the address space, it needs the total number of pages that will compose its vector of pages.<br>
+As described in the "**Segments**" section, the `as_define_region(...)` adds to the address space segments linked list the newly defined segments with the information acquired in each loop of the `load_elf(...)`, including the number of pages of each segment.<br>
+Once the `load_elf(...)` loop has ended and all the regions have been defined, the `as_prepare_load(...)` is then called. This function core task is the definition of the page table.
+```c
+/* kern/vm/addrspace.c - as_prepare_load(...) */
+[...]
+
+for (segment *curseg = as->segments; curseg != NULL; curseg = curseg->next_segment){
+    as->pt_num_pages += curseg->num_pages;
+}
+
+// Define page table
+lock_acquire(as->pt_lock);
+
+segment *curseg = as->segments;
+vaddr_t base_vaddr = curseg->base_vaddr;
+
+while ((curseg = curseg->next_segment) != NULL) {
+    if (curseg->base_vaddr < base_vaddr)
+        base_vaddr = curseg->base_vaddr;
+}
+
+as->pt = pt_init(base_vaddr, as->pt_num_pages);
+
+lock_release(as->pt_lock);
+
+[...]
+```
+
+#### Stack definition
+The stack segment is treated differently from the other two segments, it has pre-defined permissions, virtual address, sizes and offsets.<br>
+Its definition is performed in the `as_define_stack(...)`, which is called by the `runprogram(...)` once the `load_elf(...)` correctly terminated.
+
+```c
+/* kern/include/addrspace.h */
+[...]
+#define STACK_PAGES 18
+[...]
+
+/* kern/vm/addrspace.c - as_define_stack(...) */
+[...]
+
+size_t stack_size = STACK_PAGES * PAGE_SIZE;
+if (as_define_region(as, USERSTACK - stack_size, stack_size, (PF_W | PF_R), 0, 0) != 0)
+    return ENOMEM;
+
+*stackptr = USERSTACK;
+
+[...]
+```
