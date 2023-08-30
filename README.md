@@ -209,3 +209,55 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
     return 0;
 }
 ```
+
+# On-demand page loading
+On-demand page loading refers to the feature of modern kernels where process' data and code is loaded into physical as needed instead of pre-loading everything at start.</br>
+To support this feature, we introduced/redefined in OS 161 structures like: **page table**, **segments** (code, data and stack) and **address space**.
+## Page Table
+### Data structure
+We assumed a single-level per-process page table composed by a vector of `pt_entry` struct, each representing a page.
+```c
+/* kern/include/pt.h */
+
+typedef struct _pagetable {
+    uint32_t num_pages;
+    vaddr_t start_vaddr;
+    pt_entry* pages;
+} pagetable;
+```
+The total number of page is defined as the sum of the pages required by the program segments and saved as `uint32_t num_pages`, while the virtual address used for the translation is the `vaddr_t start_vaddr`.
+```c
+/* kern/include/pt.h */
+
+typedef struct _pt_entry {
+    uint8_t status;         
+    paddr_t paddr;
+    uint32_t perm;
+    off_t swapfile_offset;
+} pt_entry;
+```
+Each page table entry provide its curent status, assuming one of the following values:
+```c
+/* kern/include/pt.h */
+
+#define PT_ENTRY_EMPTY 0
+#define PT_ENTRY_SWAPPED_OUT 1
+#define PT_ENTRY_VALID 2
+```
+It also carries information about the physical address (considered valid and returned only when `status == PT_ENTRY_VALID`); the read, write and execute permissions encoded as the activation of the three LSB, and - when `status == PT_ENTRY_VALID` - the offset in the swap file.
+### Core concepts
+The page table is initialized in the `as_prepare_load(...)`, once the address space and most importantly their segments has been initialized too.
+
+The main point of our page table implementation is the address translation algorithm: 
+```c
+/* kern/include/pt.h - pt_init(...) */
+
+pt->start_vaddr = pt_start_vaddr & PAGE_FRAME;
+
+
+/* kern/include/pt.h */
+
+vaddr_t aligned_vaddr = vaddr & PAGE_FRAME;
+uint32_t pt_index = (aligned_vaddr - pt->start_vaddr) / PAGE_SIZE;
+```
+Each virtual address is first page-aligned, then compared with the page table `start_vaddr` and divided by `PAGE_SIZE` to get the index in the page vector, once there the path is straight-forward.
