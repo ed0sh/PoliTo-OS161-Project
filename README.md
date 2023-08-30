@@ -41,7 +41,8 @@ We divided our work in 3 main areas: **TLB management**, **On-demand page loadin
 
 
 # TLB Management
-Concerning the management of the TLB, we made use some of the functins declared inside *tlb.h* and of some defined constants. We wrote in file *vm_tlb.c* the following functions:
+Concerning the management of the TLB, we made use some of the functions declared inside *tlb.h* (*tlb_probe*, *tlb_read*, *tlb_write*) and of some defined constants (*NUM_TLB*, *TLBLO_VALID*, *TLBLO_DIRTY*).
+We wrote in file *vm_tlb.c* the following functions:
 - *int tlb_get_rr_victim(void)*
 - *void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm)*
 - *void tlb_invalidate(void)*
@@ -62,12 +63,13 @@ int tlb_get_rr_victim(void) {
 In *tlb_load* we managed the loading of a new entry inside the TLB:
 - if there is unused space, highlighted thanks to a validity bit *TLBLO_VALID*, we place the new entry there;
 - otherwise we choose a new victim with the round-robin algorithm, depicted above.
+
 We gave particular attention to the case when the virtul address passed to the *vm_fault* and then to the *tlb_load* is already present in an entry of the table: in this case we take as victim such entry, to surely avoid repeated virtual addresses.
 Moreover, through the parameter "perm" we discover if the new entry is writable and we take care of it setting the dirty bit *TLBLO_DIRTY*.
 Here is the code:
 ```c
 void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm) {
-    *[...]*
+    [...]
 
     index = tlb_probe(entryhi, 0);
     if (index < 0) {
@@ -94,7 +96,7 @@ void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm) {
     }
     tlb_write(entryhi, entrylo, victim);
 
-    *[...]*
+    [...]
 
     return;
 }
@@ -104,14 +106,14 @@ void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm) {
 The function *tlb_invalidate* is called by *as_activate* to invalidate all the TLB entries. In this way we ensure that after a context-switching all TLB entries are "out-of-order": the new currently running process will be forced to load its own entries.
 ```c
 void tlb_invalidate(void) {
-    *[...]*
+    [...]
 
     // clear all the valid bits
     for(i=0; i<NUM_TLB; i++) {
         tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
     }
 
-    *[...]*
+    [...]
 
     return;
 }
@@ -120,16 +122,90 @@ void tlb_invalidate(void) {
 When a page is swapped out from the page table we invalidate the corresponding TLB entry calling *tlb_invalidate_entry*. This function scrolls in the TLB looking by virtual address and then it invalidates the identified entry:
 ```c
 void tlb_invalidate_entry(vaddr_t vaddr) {
-	*[...]*
+	[...]
 
-    // clear all the valid bits
+    // clear the valid bits
     if((i = tlb_probe(vaddr, 0)) >= 0)
         tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
     
-    *[...]*
+    [...]
 
     return;
 }
 ```
 
+## TLB Fault
+We handled TLB faults inside *my_vm.c*, with *vm_fault*. This function is called by the OS when a TLB miss occurs:
+- it panics in case of VM_FAULT_READONLY;
+- it returns EINVAL in case the parameter faulttype is incorrect; 
+- it returns EFAULT in case something is wrong with the current process, the address space or the segment;
+- on success, it loads a new entry inside the TLB calling *tlb_load* and then it returns 0.
 
+The *vm_fault* is also partial responsible for the management of the page table. The page that made the *vm_fault* be called is examined:
+- if it is a stack-page we set to zero the corresponding memory area (correct?);
+- otherwise we analyse it through its *page_status*:
+    - if the page isn't inizialized yet (*page_status* equal to *PT_ENTRY_EMPTY*) we allocate some memory for it, we load it from the ELF program file and we add the new entry in page table;
+    - if the page was swapped-out (*page_status* equal to *PT_ENTRY_SWAPPED_OUT*) we retrive it from the swapfile, performing a swap-in;
+    - if the page is valid (*page_status* equal to *PT_ENTRY_VALID*) we just reload it inside the TLB.
+
+```c
+int vm_fault(int faulttype, vaddr_t faultaddress) {
+    [...]
+
+    switch(faulttype) {
+        case VM_FAULT_READONLY:
+		    panic("Attempt by an application to modify its text section : got VM_FAULT_READONLY\n");
+	    case VM_FAULT_READ:
+	    case VM_FAULT_WRITE:
+		break;
+	    default:
+		    return EINVAL; 
+    }
+
+    if (curproc == NULL) { return EFAULT; }
+
+    as = proc_getas();
+    if (as == NULL) { return EFAULT; }
+
+    sg = as_find_segment(as, faultaddress);
+    if (sg == NULL) { return EFAULT; }
+
+
+    if (sg->base_vaddr == USERSTACK - sg->mem_size) {   // it's a stack page       
+        paddr = getppage_user(aligned_faultaddress);            // allocate memory 
+        bzero((void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
+        vmstats_increment(VMSTATS_PAGE_FAULTS_ZEROED);    
+    } else {
+        // Management of the page inside the PT 
+        [...]
+        if (page_status == PT_ENTRY_EMPTY) {                // not-initialized (0)
+            paddr = getppage_user(aligned_faultaddress);            // allocate memory 
+            load_page_from_elf(sg, faultaddress, paddr);
+            lock_acquire(as->pt_lock);  
+            pt_add_entry(pt, faultaddress, paddr, perm);    // add entry in pt  
+            lock_release(as->pt_lock);           
+            [...]
+        } else if (page_status == PT_ENTRY_SWAPPED_OUT) {   // swapped-out (1): retrive it from swapfile 
+            paddr = getppage_user(aligned_faultaddress);            // allocate memory 
+            lock_acquire(as->pt_lock);  
+            swap_offset = pt_get_page_swapfile_offset(pt, faultaddress);
+            swap_in(paddr, swap_offset);
+            pt_swap_in(pt, faultaddress, paddr, perm);
+            [...]
+        } else if (page_status == PT_ENTRY_VALID) {         // valid (2)
+            // nothing to do
+            vmstats_increment(VMSTATS_TLB_RELOADS);
+        }
+    }
+
+    /* make sure it's page-aligned */
+	KASSERT((paddr & PAGE_FRAME) == paddr);
+    [...]
+
+    // Management of the entry inside TLB 
+    tlb_load((uint32_t)aligned_faultaddress, (uint32_t)paddr, perm);
+    vmstats_increment(VMSTATS_TLB_FAULTS);
+
+    return 0;
+}
+```
