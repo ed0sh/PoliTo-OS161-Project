@@ -40,14 +40,96 @@ We divided our work in 3 main areas: **TLB management**, **On-demand page loadin
 ### da qua si parte a spiegare cosa fanno i file uno per uno
 
 
-### TLB Management
+# TLB Management
 Concerning the management of the TLB, we made use some of the functins declared inside *tlb.h* and of some defined constants. We wrote in file *vm_tlb.c* the following functions:
 - *int tlb_get_rr_victim(void)*
 - *void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm)*
 - *void tlb_invalidate(void)*
 - *void tlb_invalidate_entry(vaddr_t vaddr)*
-The *tlb_get_rr_victim* implements a round-robin replacement policy (given) and it returns an index indicating the next chosen victim.
-In *tlb_load* we managed the loading of a new entry inside the TLB: if there is unused space (highlighted thanks to a validity bit *TLBLO_VALID*) we place the new entry there; otherwise we choose a new victim with the round-robin algorithm. We gave particular attention to the case when the virtul address passed to the *vm_fault* is already present in an entry of the table; in this case we take as victim such entry, in order to surely avoid TLB conflicting entries. Moreover, through the parameter "perm" we discover if the new entry is writable and we take care of it setting the dirty bit *TLBLO_DIRTY*.
-The function *tlb_invalidate* is called by *as_activate* to ensure that all TLB entries will be unreadable by the new currently running process. In this way it will be forced to load its own entries.
-When a page is swapped out from the page table we invalidate the corresponding TLB entry calling *tlb_invalidate_entry*. This function scrolls in the TLB looking by virtual address and then it invalidates the entry.
+
+## TLB Load New Entry
+The *tlb_get_rr_victim* implements a round-robin replacement policy and it returns an index indicating the next chosen victim:
+```c
+int tlb_get_rr_victim(void) {
+    int victim;
+    static unsigned int next_victim = 0;
+    victim = next_victim;
+    next_victim = (next_victim + 1) % NUM_TLB;
+    return victim;
+}
+```
+
+In *tlb_load* we managed the loading of a new entry inside the TLB:
+- if there is unused space, highlighted thanks to a validity bit *TLBLO_VALID*, we place the new entry there;
+- otherwise we choose a new victim with the round-robin algorithm, depicted above.
+We gave particular attention to the case when the virtul address passed to the *vm_fault* and then to the *tlb_load* is already present in an entry of the table: in this case we take as victim such entry, to surely avoid repeated virtual addresses.
+Moreover, through the parameter "perm" we discover if the new entry is writable and we take care of it setting the dirty bit *TLBLO_DIRTY*.
+Here is the code:
+```c
+void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm) {
+    *[...]*
+
+    index = tlb_probe(entryhi, 0);
+    if (index < 0) {
+        for (i = 0; i < NUM_TLB; i++) {
+            tlb_read(&v_hi, &p_lo, i);
+            if (!(p_lo & TLBLO_VALID)) {
+                victim=i;   
+                vmstats_increment(VMSTATS_TLB_FAULTS_WITH_FREE);            
+                break;
+            }
+        }
+        if(victim == -1) {  // no free entry, use round robin
+            victim = tlb_get_rr_victim();
+            vmstats_increment(VMSTATS_TLB_FAULTS_WITH_REPLACE);
+        } 
+    } else {    // vaddr already present in TLB
+        victim = index;
+        vmstats_increment(VMSTATS_TLB_FAULTS_WITH_REPLACE);
+    }
+
+    entrylo = entrylo | TLBLO_VALID;
+    if (perm & PF_W) {  // if it is writable, set the dirty bit
+        entrylo = entrylo | TLBLO_DIRTY;
+    }
+    tlb_write(entryhi, entrylo, victim);
+
+    *[...]*
+
+    return;
+}
+```
+
+## TLB Invalidation
+The function *tlb_invalidate* is called by *as_activate* to invalidate all the TLB entries. In this way we ensure that after a context-switching all TLB entries are "out-of-order": the new currently running process will be forced to load its own entries.
+```c
+void tlb_invalidate(void) {
+    *[...]*
+
+    // clear all the valid bits
+    for(i=0; i<NUM_TLB; i++) {
+        tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+    }
+
+    *[...]*
+
+    return;
+}
+```
+
+When a page is swapped out from the page table we invalidate the corresponding TLB entry calling *tlb_invalidate_entry*. This function scrolls in the TLB looking by virtual address and then it invalidates the identified entry:
+```c
+void tlb_invalidate_entry(vaddr_t vaddr) {
+	*[...]*
+
+    // clear all the valid bits
+    if((i = tlb_probe(vaddr, 0)) >= 0)
+        tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+    
+    *[...]*
+
+    return;
+}
+```
+
 
