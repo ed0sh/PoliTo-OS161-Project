@@ -37,7 +37,6 @@ We divided our work in 3 main areas: **TLB management**, **On-demand page loadin
 - runprogram.c
 - loadelf.c
 
-### da qua si parte a spiegare cosa fanno i file uno per uno
 
 
 # TLB Management
@@ -397,4 +396,116 @@ if (as_define_region(as, USERSTACK - stack_size, stack_size, (PF_W | PF_R), 0, 0
 *stackptr = USERSTACK;
 
 [...]
+```
+# Page replacement
+Page replacement operations start when a Page Fault occours and there are no free space in memory. This set of functions implements a global replacement policy, with victim selection based on FIFO.
+
+## Swapfile
+The file `SWAPFILE` is a temporary parking for memory pages that we had to swap-out from memory when there are no free space; the file's dimension `SWAP_SIZE` (9 MB) is defined in `swapfile.h`. In order to maintain a correspondence between memory and swapfile the file is divided in pages of `PAGE_SIZE` bytes, these pages are managed by a bitmap in order to trace the free/occupied entries. In case of SWAPFILE is full a panic `out of swap space` is raised
+
+### Data structures
+File path: `kern/vm/swapfile.c`
+```c
+#define SWAP_PATH "emu0:/SWAPFILE"
+
+struct vnode *swapfile;
+struct bitmap *swapfile_map;
+```
+### Core concepts
+After the bootstrap a void SWAPFILE with dimension `SWAP_SIZE` is created and saved in `SWAP_PATH`, that is because at the start of our system there are no swapped-out pages (so it isn't a classic backing store); a bitmap of `SWAP_SIZE/PAGE_SIZE` entries is used to trace the page's status in the SWAPFILE, thanks to this when needed we don't have to remove physically a page from the file but only to set the corresponding bitmap entry as free; please note that all the bitmap management functions are the ones already provided in OS161 system. Using this method when a page is the selected victim and we need to remove it from memory we can write easily it in the first free page of SWAPFILE and mark it as swapped page; the found page index is saved within the address space of the process, in order to find it faster in case of the page must returns to memory (swap-in operation), with direct access to SWAPFILE page. The SWAPFILE entries are freed when a swap-in operation is requested, when the corresponding process terminates and during the shutdown
+```
+Only pages of a user process can be swapped-out from memory
+```
+Access to SWAPFILE is protected using a spinlock to guarantee mutual exclusion 
+
+#### Swap-out
+Swap-out operation is performed when a request of page allocation in memory for a user process cannot be completed due to no free space; after victim's selection the corresponding page is removed from memory and PT and written in the SWAPFILE, after saving the index of the found entry.
+```c
+res = bitmap_alloc(swapfile_map, &index);
+    if (res)
+        panic("Out of swap space\n");
+
+offset = index * PAGE_SIZE; 
+
+uio_kinit(&iov, &u, (void *) PADDR_TO_KVADDR(paddr), PAGE_SIZE, offset, UIO_WRITE);
+    VOP_WRITE(swapfile, &u);
+
+*swap_offset = offset;
+```
+
+#### Swap-in
+The opposite operaton is performed when a requested page, that causes a Page Fault, is marked as swapped, that is mean it has the field `off_t swapfile_offset` in its PT entry different from NULL; in this case we don't have to search it in secondary memory but directly in SWAPFILE, using direct access via the given offset. In this function we only try to read the corresponding address in SWAPFILE and in case of success mark the bitmap's index as free
+```c
+index = swap_offset / PAGE_SIZE;
+
+if (!bitmap_isset(swapfile_map, index)) 
+        panic("No swapped pages found at this address\n");
+
+uio_kinit(&iov, &u, (void *) PADDR_TO_KVADDR(paddr), PAGE_SIZE, swap_offset, UIO_READ);
+    VOP_READ(swapfile, &u);
+
+bitmap_unmark(swapfile_map, index);
+```
+
+## Coremap
+The `coremap` is a virtual replacement of RAM memory, that now is seen as an array of `coremap_entry` with dimension equal to the number of RAM's physical frame; we've done this because in this situation we are able to manage the memory easier and we can choose what we want to save inside our memory frames.
+
+### Data structures
+File path: `kern/vm/coremap.c`
+```c
+//represents one frame in memory
+struct coremap_entry {
+    int type;
+    int alloc_size;
+    vaddr_t vaddr;
+    struct addrspace *as;
+    //only for user space
+    paddr_t prev_allocated, next_allocated;
+};
+
+struct coremap_entry *coremap = NULL;
+```
+### Core concepts
+This set of functions replaces completely the memory management functions defined in `dumbvm.c` and in `kamlloc.c`, in order to manage this using the new defined coremap; in addition there are a couple of particular functions to manage the user-side memory allocation, that is the one it can be interested from swapping operations. The re-defined functions are the following:
+
+```c 
+static paddr_t getfreeppages
+static paddr_t getppages
+static int freeppages
+vaddr_t alloc_kpages
+void free_kpages
+```
+Instead the new defined function for user processes are these: (note that unlike the previuos ones user processes can only request/free one page per time: `on-demand paging`)
+```c 
+paddr_t getppage_user
+void freeppage_user
+```
+
+#### Types of coremap entry
+There are 4 possibile types of memory frames:
+```c 
+#define UNTRACKED_ENTRY 0
+#define FREED_ENTRY 1
+#define KERNEL_ENTRY 2                  
+#define USER_ENTRY 3
+```
+First 2 indicates that the current frame is free, but the difference is `FREED_ENTRY` marks a frame that was allocated and subsequently freed, so they are the ones we search in `getfreeppages` (if no enough contiguos freed entries are found we call `ram_stealmem`). The other 2 indicates an allocated frame and what kind of process occupies it; note that a PT entry is included in `KERNEL_ENTRY` and like everyone else of this kind it cannot be swapped-out from memory.
+
+#### Actual page replacement
+As we seen before only frames marked as `USER_ENTRY` can be the victim, so they are the only can be swapped-out from memory when it is full; page replacement is managed inside `paddr_t getppage_user` function. In this case we've chosen to implement a global replacement policy (so it doesn't matter what process is in execution) based on a First-In-First-Out algorithm, made via a linked list of frames; every user frame has inside it the references to previuos and next allocated frame (fields `paddr_t prev_allocated, next_allocated` in `coremap_entry`) and a global variable traces the current victim of replacement policy. Every time a user process call `getppage_user` to request on-demand page allocation the memory management tries to do it using usual functions (`getfreeppages` and `ram_stealmem` with 1 page) and if allocation fails, so there are no space, it starts replacement procedure: current victim (which paddr is saved in a global variable `victim`) is swapped out from memory, from current process Page Table and from TLB and we save this address as the one we want to allocate for requesting process; after that using the victim `next_allocated` field we select new victim for next allocations
+```c 
+//physical address of victim  (it will be our freed page to be returned)
+padd = (paddr_t)victim_tmp * PAGE_SIZE;
+
+//saves in offset the position in swapfile of victim
+res = swap_out(padd, &offset);
+if (res)
+    panic("swap out failed\n");
+
+//removes from memory
+lock_acquire(as->pt_lock);
+pt_swap_out(as->pt, coremap[victim_tmp].vaddr, offset);
+lock_release(as->pt_lock);
+
+tlb_invalidate_entry(coremap[victim_tmp].vaddr);
 ```
