@@ -211,8 +211,10 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
 ```
 
 # On-demand page loading
-On-demand page loading refers to the feature of modern kernels where process' data and code is loaded into physical as needed instead of pre-loading everything at start.</br>
-To support this feature, we introduced/redefined in OS 161 structures like: **page table**, **segments** (code, data and stack) and **address space**.
+On-demand page loading refers to the feature of modern kernels where process' data and code is loaded into physical as needed instead of pre-loading everything at start.<br>
+To support this feature, we introduced/redefined in OS 161 structures like: **page table**, **segments** (code, data and stack) and **address space**.<br>
+We also had to redefine how functions like `load_elf(...)` and `runprogram(...)` behaves.
+
 ## Page Table
 ### Data structure
 We assumed a single-level per-process page table composed by a vector of `pt_entry` struct, each representing a page.
@@ -245,9 +247,13 @@ Each page table entry provide its curent status, assuming one of the following v
 #define PT_ENTRY_VALID 2
 ```
 It also carries information about the physical address (considered valid and returned only when `status == PT_ENTRY_VALID`); the read, write and execute permissions encoded as the activation of the three LSB, and - when `status == PT_ENTRY_VALID` - the offset in the swap file.
-### Core concepts
-The page table is initialized in the `as_prepare_load(...)`, once the address space and most importantly their segments has been initialized too.
 
+### Core concepts
+#### Initialization and deallocation
+The page table is initialized in the `as_prepare_load(...)`, once the address space and most importantly their segments has been initialized too.<br>
+The space is freed only once the process is no more running, indeed the page table deallocation function `pt_destroy(...)` is called inside `as_destroy(...)`;
+
+#### Adress transaltion
 The main point of our page table implementation is the address translation algorithm: 
 ```c
 /* kern/include/pt.h - pt_init(...) */
@@ -260,4 +266,17 @@ pt->start_vaddr = pt_start_vaddr & PAGE_FRAME;
 vaddr_t aligned_vaddr = vaddr & PAGE_FRAME;
 uint32_t pt_index = (aligned_vaddr - pt->start_vaddr) / PAGE_SIZE;
 ```
-Each virtual address is first page-aligned, then compared with the page table `start_vaddr` and divided by `PAGE_SIZE` to get the index in the page vector, once there the path is straight-forward.
+Each virtual address is first page-aligned, then compared with the page table `start_vaddr` and divided by `PAGE_SIZE` to get the index in the page vector, once there the path is straightforward.
+
+## Program segments
+The address space of a program contains a collection of segments that represents those read in the ELF file.<br>
+In OS 161, the most important ones are: *data*, *code* and *stack*.
+### Data structure
+
+```c
+/* kern/include/segments.h */
+
+```
+
+
+### Core concepts
