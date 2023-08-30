@@ -253,15 +253,15 @@ It also carries information about the physical address (considered valid and ret
 The page table is initialized in the `as_prepare_load(...)`, once the address space and most importantly their segments has been initialized too.<br>
 The space is freed only once the process is no more running, indeed the page table deallocation function `pt_destroy(...)` is called inside `as_destroy(...)`;
 
-#### Adress transaltion
+#### Address transaltion
 The main point of our page table implementation is the address translation algorithm: 
 ```c
-/* kern/include/pt.h - pt_init(...) */
+/* kern/include/pt.c - pt_init(...) */
 
 pt->start_vaddr = pt_start_vaddr & PAGE_FRAME;
 
 
-/* kern/include/pt.h */
+/* kern/include/pt.c */
 
 vaddr_t aligned_vaddr = vaddr & PAGE_FRAME;
 uint32_t pt_index = (aligned_vaddr - pt->start_vaddr) / PAGE_SIZE;
@@ -271,12 +271,38 @@ Each virtual address is first page-aligned, then compared with the page table `s
 ## Program segments
 The address space of a program contains a collection of segments that represents those read in the ELF file.<br>
 In OS 161, the most important ones are: *data*, *code* and *stack*.
+
 ### Data structure
+We decided to implement those segments as a linked list, in order to address the problem of the "empty" region between the stack and the other two segments.
 
 ```c
 /* kern/include/segments.h */
 
+typedef struct _segment {
+    uint32_t perm;
+    vaddr_t base_vaddr;         // Aligned vaddr
+    off_t base_vaddr_offset;    // The offset coming from the alignment
+    off_t file_offset;
+    size_t file_size;
+    size_t mem_size;            // Size of data to be loaded into memory
+    size_t num_pages;
+    struct _segment *next_segment;
+} segment;
 ```
 
+Each segment is composed by a set of properties that we briefly describe:
+- `perm`: permissions that reflects exactly those described in the page table;
+- `base_vaddr`: page-aligned segment virtual address;
+- `base_vaddr_offset`: offset coming from the alignment of the virtual address, very important during the offset calculation needed to read a single page in the `load_page_from_elf(...)`;
+- `file_offset`: the segment offset inside the ELF file;
+- `file_size`: the segment size (in bytes) inside the ELF file;
+- `mem_size`: the size of the data loaded into the memory;
+- `next_segment`: pointer to the next segment.
 
 ### Core concepts
+#### Initialization and deallocation
+Segments are defined in the first - and now the only - complete read of the ELF file inside the `load_elf(...)`.<br>
+The `as_define_region(...)` is responsible for correctly setting the previously defined fields, but only for *data* and *code*.<br>
+The stack segment insted is created by calling `as_define_stack(...)` from `runprogram(...)`.<br>
+The entire segment linked list is deallocated together with the process address space by calling `segments_destroy_linked_list(...)` inside `as_destroy(...)`.
+
