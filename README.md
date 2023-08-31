@@ -419,32 +419,40 @@ Only pages of a user process can be swapped-out from memory
 Access to SWAPFILE is protected using a spinlock to guarantee mutual exclusion 
 
 #### Swap-out
-Swap-out operation is performed when a request of page allocation in memory for a user process cannot be completed due to no free space; after victim's selection the corresponding page is removed from memory and PT and written in the SWAPFILE, after saving the index of the found entry.
+Swap-out operation is performed when a request of page allocation in memory for a user process cannot be completed due to no free space; after victim's selection (which physical address is the parameter `paddr`) the corresponding page is removed from memory and PT and written in the SWAPFILE, after saving the index of the found entry in `swap_offset`.
 ```c
-res = bitmap_alloc(swapfile_map, &index);
-    if (res)
-        panic("Out of swap space\n");
+int swap_out(paddr_t paddr, off_t *swap_offset){
+    [...]
+    res = bitmap_alloc(swapfile_map, &index);
+        if (res)
+            panic("Out of swap space\n");
 
-offset = index * PAGE_SIZE; 
+    offset = index * PAGE_SIZE; 
 
-uio_kinit(&iov, &u, (void *) PADDR_TO_KVADDR(paddr), PAGE_SIZE, offset, UIO_WRITE);
-    VOP_WRITE(swapfile, &u);
+    uio_kinit(&iov, &u, (void *) PADDR_TO_KVADDR(paddr), PAGE_SIZE, offset, UIO_WRITE);
+        VOP_WRITE(swapfile, &u);
 
-*swap_offset = offset;
+    *swap_offset = offset;
+    [...]
+}
 ```
 
 #### Swap-in
 The opposite operaton is performed when a requested page, that causes a Page Fault, is marked as swapped, that is mean it has the field `off_t swapfile_offset` in its PT entry different from NULL; in this case we don't have to search it in secondary memory but directly in SWAPFILE, using direct access via the given offset. In this function we only try to read the corresponding address in SWAPFILE and in case of success mark the bitmap's index as free
 ```c
-index = swap_offset / PAGE_SIZE;
+int swap_in(paddr_t paddr, off_t swap_offset){
+    [...]
+    index = swap_offset / PAGE_SIZE;
 
-if (!bitmap_isset(swapfile_map, index)) 
-        panic("No swapped pages found at this address\n");
+    if (!bitmap_isset(swapfile_map, index)) 
+            panic("No swapped pages found at this address\n");
 
-uio_kinit(&iov, &u, (void *) PADDR_TO_KVADDR(paddr), PAGE_SIZE, swap_offset, UIO_READ);
-    VOP_READ(swapfile, &u);
-
-bitmap_unmark(swapfile_map, index);
+    uio_kinit(&iov, &u, (void *) PADDR_TO_KVADDR(paddr), PAGE_SIZE, swap_offset, UIO_READ);
+        VOP_READ(swapfile, &u);
+    [...]
+    bitmap_unmark(swapfile_map, index);
+    [...]
+}
 ```
 
 ## Coremap
@@ -453,7 +461,7 @@ The `coremap` is a virtual replacement of RAM memory, that now is seen as an arr
 ### Data structures
 File path: `kern/vm/coremap.c`
 ```c
-//represents one frame in memory
+/* kern/include/coremap.h */
 struct coremap_entry {
     int type;
     int alloc_size;
@@ -462,9 +470,12 @@ struct coremap_entry {
     //only for user space
     paddr_t prev_allocated, next_allocated;
 };
-
+```
+```c
 struct coremap_entry *coremap = NULL;
 ```
+A single `coremap_entry` represents one pyhisical frame in memory; within its we found allocation `type` (see later), `alloc_size` is used to indicate the first frame in a contiguos allocation with the dimension in frame of that structure, `vaddr` is the virtual address of the frame, `as` points the address space linked to the frame (only for user processes), `prev_allocated` and `next_allocated` create a linked list of frame used for replacement policy (only for user processes)
+
 ### Core concepts
 This set of functions replaces completely the memory management functions defined in `dumbvm.c` and in `kamlloc.c`, in order to manage this using the new defined coremap; in addition there are a couple of particular functions to manage the user-side memory allocation, that is the one it can be interested from swapping operations. The re-defined functions are the following:
 
@@ -484,6 +495,7 @@ void freeppage_user
 #### Types of coremap entry
 There are 4 possibile types of memory frames:
 ```c 
+/* kern/include/coremap.h */
 #define UNTRACKED_ENTRY 0
 #define FREED_ENTRY 1
 #define KERNEL_ENTRY 2                  
@@ -494,18 +506,25 @@ First 2 indicates that the current frame is free, but the difference is `FREED_E
 #### Actual page replacement
 As we seen before only frames marked as `USER_ENTRY` can be the victim, so they are the only can be swapped-out from memory when it is full; page replacement is managed inside `paddr_t getppage_user` function. In this case we've chosen to implement a global replacement policy (so it doesn't matter what process is in execution) based on a First-In-First-Out algorithm, made via a linked list of frames; every user frame has inside it the references to previuos and next allocated frame (fields `paddr_t prev_allocated, next_allocated` in `coremap_entry`) and a global variable traces the current victim of replacement policy. Every time a user process call `getppage_user` to request on-demand page allocation the memory management tries to do it using usual functions (`getfreeppages` and `ram_stealmem` with 1 page) and if allocation fails, so there are no space, it starts replacement procedure: current victim (which paddr is saved in a global variable `victim`) is swapped out from memory, from current process Page Table and from TLB and we save this address as the one we want to allocate for requesting process; after that using the victim `next_allocated` field we select new victim for next allocations
 ```c 
-//physical address of victim  (it will be our freed page to be returned)
-padd = (paddr_t)victim_tmp * PAGE_SIZE;
+paddr_t victim = 0;
+[...]
+paddr_t getppage_user(vaddr_t vadd){
+    [...]
+    //physical address of victim  (it will be our freed page to be returned)
+    padd = (paddr_t)victim_tmp * PAGE_SIZE;
 
-//saves in offset the position in swapfile of victim
-res = swap_out(padd, &offset);
-if (res)
-    panic("swap out failed\n");
+    //saves in offset the position in swapfile of victim
+    res = swap_out(padd, &offset);
+    if (res)
+        panic("swap out failed\n");
 
-//removes from memory
-lock_acquire(as->pt_lock);
-pt_swap_out(as->pt, coremap[victim_tmp].vaddr, offset);
-lock_release(as->pt_lock);
+    //removes from memory
+    lock_acquire(as->pt_lock);
+    pt_swap_out(as->pt, coremap[victim_tmp].vaddr, offset);
+    lock_release(as->pt_lock);
 
-tlb_invalidate_entry(coremap[victim_tmp].vaddr);
+    tlb_invalidate_entry(coremap[victim_tmp].vaddr);
+    [...]
+    return padd;
+}
 ```
