@@ -55,6 +55,7 @@ struct addrspace *
 as_create(char *progname)
 {
 	struct addrspace *as;
+	vm_can_sleep();
 
 	as = kmalloc(sizeof(struct addrspace));
 	if (as == NULL) {

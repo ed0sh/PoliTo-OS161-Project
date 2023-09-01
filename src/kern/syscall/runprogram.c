@@ -55,15 +55,20 @@ int
 runprogram(char *progname)
 {
 	struct addrspace *as;
+#if !OPT_PAGING
 	struct vnode *v;
+#endif
 	vaddr_t entrypoint, stackptr;
 	int result;
 
 	/* Open the file. */
+	// TODO: check
+#if !OPT_PAGING
 	result = vfs_open(progname, O_RDONLY, 0, &v);
 	if (result) {
 		return result;
 	}
+#endif
 
 	/* We should be a new process. */
 	KASSERT(proc_getas() == NULL);
@@ -75,7 +80,7 @@ runprogram(char *progname)
 	as = as_create();
 #endif
 	if (as == NULL) {
-		vfs_close(v);
+		vfs_close(as->v);
 		return ENOMEM;
 	}
 
@@ -84,10 +89,10 @@ runprogram(char *progname)
 	as_activate();
 
 	/* Load the executable. */
-	result = load_elf(v, &entrypoint);
+	result = load_elf(as->v, &entrypoint);
 	if (result) {
 		/* p_addrspace will go away when curproc is destroyed */
-		vfs_close(v);
+		vfs_close(as->v);
 		return result;
 	}
 
