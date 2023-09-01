@@ -215,18 +215,6 @@ static paddr_t getppages(unsigned long npages){
         }
     }
 
-    //save the new pages in coremap array 
-    /*if (addr != 0){
-        int start_page = addr / PAGE_SIZE;
-
-        spinlock_acquire(&stealmem_lock);
-        coremap[start_page].alloc_size = npages;
-        for (i=start_page; i<start_page+npages; i++){
-            coremap[i].type = KERNEL_ENTRY;
-        }
-		spinlock_release(&stealmem_lock);
-    }*/
-
     return addr;
 }
 
