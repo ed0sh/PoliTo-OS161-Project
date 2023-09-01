@@ -15,13 +15,15 @@ typedef struct _pt_entry {
 } pt_entry;
 
 typedef struct _pagetable {
-    uint32_t num_pages;     // Number of pages in the page table    
-    vaddr_t start_vaddr;    // Page table start address
+    uint32_t num_pages1;     // Number of pages in the page table 1
+    uint32_t num_pages2;     // Number of pages in the page table 2
+    vaddr_t start_vaddr1;    // Page table start address 1
+    vaddr_t start_vaddr2;    // Page table start address 2
     pt_entry* pages;        // Page table entries
 } pagetable;
 
 
-pagetable *pt_init(vaddr_t pt_start_vaddr, uint32_t pt_num_pages);
+pagetable *pt_init(vaddr_t pt_start_vaddr1, uint32_t pt_num_pages1, vaddr_t pt_start_vaddr2, uint32_t pt_num_pages2);
 int pt_copy(pagetable *old, pagetable **ret);
 void pt_add_entry(pagetable *pt, vaddr_t vaddr, paddr_t paddr, uint32_t perm);
 uint8_t pt_get_page(pagetable *pt, vaddr_t vaddr, paddr_t *paddr, uint32_t *perm);
