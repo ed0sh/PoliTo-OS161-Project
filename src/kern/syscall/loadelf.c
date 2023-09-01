@@ -85,6 +85,9 @@ load_segment(struct addrspace *as, struct vnode *v,
 	struct uio u;
 	int result;
 
+	(void)as;
+	(void)is_executable;
+
 	if (filesize > memsize) {
 		kprintf("ELF: warning: segment filesize > segment memsize\n");
 		filesize = memsize;
@@ -99,9 +102,9 @@ load_segment(struct addrspace *as, struct vnode *v,
 	u.uio_iovcnt = 1;
 	u.uio_resid = filesize;          // amount to read from the file
 	u.uio_offset = offset;
-	u.uio_segflg = is_executable ? UIO_USERISPACE : UIO_USERSPACE;
+	u.uio_segflg = UIO_SYSSPACE;
 	u.uio_rw = UIO_READ;
-	u.uio_space = as;
+	u.uio_space = NULL;
 
 	result = VOP_READ(v, &u);
 	if (result) {
@@ -365,7 +368,9 @@ int load_page_from_elf(segment *seg, vaddr_t vaddr, paddr_t paddr) {
 	size_t page_mem_size, page_file_size;
 
 	uint32_t page_index_in_seg = (vaddr - (seg->base_vaddr & PAGE_FRAME)) / PAGE_SIZE;
-	page_target_addr = PADDR_TO_KVADDR(paddr & PAGE_FRAME);
+	KASSERT(page_index_in_seg < seg->num_pages);
+
+	page_target_addr = PADDR_TO_KVADDR(paddr);
 	page_file_offset = seg->file_offset;
 
 	if (page_index_in_seg == 0) {
@@ -429,6 +434,7 @@ int load_page_from_elf(segment *seg, vaddr_t vaddr, paddr_t paddr) {
 	KASSERT(page_file_size <= PAGE_SIZE);
     KASSERT(page_file_offset - seg->file_offset <= seg->file_size);
 
+	bzero((void *)page_target_addr, page_mem_size);
 	int result = load_segment(as, as->v, page_file_offset, page_target_addr , page_mem_size, page_file_size, seg->perm & PF_X);
 	return result;
 
