@@ -162,12 +162,15 @@ We assumed a single-level per-process page table composed by a vector of `pt_ent
 /* kern/include/pt.h */
 
 typedef struct _pagetable {
-    uint32_t num_pages;
-    vaddr_t start_vaddr;
+    uint32_t num_pages1;
+    uint32_t num_pages2;
+    vaddr_t start_vaddr1;
+    vaddr_t start_vaddr2;
     pt_entry* pages;
 } pagetable;
 ```
-The total number of page is defined as the sum of the pages required by the program segments and saved as `uint32_t num_pages`, while the virtual address used for the translation is the `vaddr_t start_vaddr`.
+The total number of page is defined as the sum of the pages required by the program segments saved as `uint32_t num_pages1` and `uint32_t num_pages2`, while the virtual addresses used for the translation are `vaddr_t start_vaddr1, start_vaddr2`.<br>
+We have two different start addresses in order to address the "hole" between the code and data segments virtual addresses (e.g. code start_vaddr = 0x400000, mem_size = 0x2000; data start_vaddr = 0x412000, mem_size = 0x2000).
 ```c
 /* kern/include/pt.h */
 
@@ -200,7 +203,9 @@ The main point of our page table implementation is the address translation algor
 /* kern/include/pt.c - pt_init(...) */
 [...]
 
-pt->start_vaddr = pt_start_vaddr & PAGE_FRAME;
+pt->start_vaddr1 = pt_start_vaddr1 & PAGE_FRAME;
+pt->start_vaddr2 = pt_start_vaddr2 & PAGE_FRAME;
+pt->pages = kmalloc((pt_num_pages1 + pt_num_pages2) * sizeof(pt_entry));
 
 [...]
 
@@ -208,11 +213,16 @@ pt->start_vaddr = pt_start_vaddr & PAGE_FRAME;
 [...]
 
 vaddr_t aligned_vaddr = vaddr & PAGE_FRAME;
-uint32_t pt_index = (aligned_vaddr - pt->start_vaddr) / PAGE_SIZE;
+uint32_t pt_index;
+if (aligned_vaddr >= pt->start_vaddr2)
+    pt_index = ((aligned_vaddr - pt->start_vaddr2) / PAGE_SIZE) + pt->num_pages1;
+else
+    pt_index = (aligned_vaddr - pt->start_vaddr1) / PAGE_SIZE;
 
 [...]
 ```
-Each virtual address is first page-aligned, then compared with the page table `start_vaddr` and divided by `PAGE_SIZE` to get the index in the page vector, once there the path is straightforward.
+Each virtual address is first page-aligned, then compared with the page table `start_vaddr` and divided by `PAGE_SIZE` to get the index in the page vector. If the required address is in the "second" part of the array then a offset equal to the number of pages of the first part is added.<br>
+Once there the path is straightforward.
 
 ## Program segments
 The address space of a program contains a collection of segments that represents those read in the ELF file.<br>
@@ -303,11 +313,21 @@ for (segment *curseg = as->segments; curseg != NULL; curseg = curseg->next_segme
 lock_acquire(as->pt_lock);
 
 segment *curseg = as->segments;
-vaddr_t base_vaddr = curseg->base_vaddr;
+vaddr_t base_vaddr1 = curseg->base_vaddr;
+vaddr_t base_vaddr2 = 0;
+size_t num_pages1 = curseg->num_pages;
+size_t numpages_2 = 0;
 
 while ((curseg = curseg->next_segment) != NULL) {
-    if (curseg->base_vaddr < base_vaddr)
-        base_vaddr = curseg->base_vaddr;
+    if (curseg->base_vaddr < base_vaddr1) {
+        base_vaddr2 = base_vaddr1;
+        numpages_2 = num_pages1;
+        base_vaddr1 = curseg->base_vaddr;
+        num_pages1 = curseg->num_pages;
+    } else {
+        base_vaddr2 = curseg->base_vaddr;
+        numpages_2 = curseg->num_pages;
+    }
 }
 
 as->pt = pt_init(base_vaddr, as->pt_num_pages);
@@ -338,6 +358,24 @@ if (as_define_region(as, USERSTACK - stack_size, stack_size, (PF_W | PF_R), 0, 0
 
 [...]
 ```
+
+#### Runprogram
+The `runprogram(...)` function is the one responsible for defining the address space and initializing it with the data read from the ELF file.<br>
+The main changes we made to it are: the relocation of the `vfs_open(...)` from this function to the `as_create(...)` and the relocation od the `vfs_close(...)` from this function to the `as_destroy(...)`.
+
+#### Load ELF
+The `load_elf(...)` function is now no more the one that actually load into memory the program code and data, but it only defines the program segments inside the address space.
+
+We wrote a new function to read data from the elf file and load *maximum* one page at a time into memory. <br>
+Its signature is `load_page_from_elf(segment *seg, vaddr_t vaddr, paddr_t paddr)` and it's called only after a tlb fault by `vm_fault(...)` in those cases where the page is not in the page table nor in the swap space.<br>
+The main task that it performs is the calculation of the arguments needed by the `load_segment(...)` (which also underwent minor changes) that are:
+* the target virtual address (where the data will be loaded);
+* the offset (the location to begin reading from) inside the elf file;
+* the file size (the amount of data to be read) and the memory size (the amount of data that will be loaded into memory).
+
+For more detail see [`kern/syscall/loadelf.c`](./src/kern/syscall/loadelf.c#L363).
+
+
 # Page replacement
 Page replacement operations start when a Page Fault occours and there are no free space in memory. This set of functions implements a global replacement policy, with victim selection based on FIFO.
 
