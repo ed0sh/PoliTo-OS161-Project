@@ -78,7 +78,6 @@ int swap_out(paddr_t paddr, off_t *swap_offset){
         panic("Swapfile's page out of bound\n");
 
     //write swapped-out page in offset position of swapfile (temporary parking when memory is full)
-    //PADDR_TO_KVADDR --> converts paddr to a virtual one, by adding 2GB
     uio_kinit(&iov, &u, (void *) PADDR_TO_KVADDR(paddr), PAGE_SIZE, offset, UIO_WRITE);
     VOP_WRITE(swapfile, &u);
     if (u.uio_resid != 0) {
