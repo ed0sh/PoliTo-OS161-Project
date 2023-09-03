@@ -20,7 +20,6 @@ struct coremap_entry {
 
 int coremap_init(void);
 int coremap_close(void);
-// static paddr_t search_free_pages(int npages);
 
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);

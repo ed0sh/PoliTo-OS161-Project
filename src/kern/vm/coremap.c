@@ -99,42 +99,6 @@ static int isCoremapActive(void){
 
 
 /*
-searches for a contiguos interval of free frame in memory
-if found returns the starting paddr
-
-static paddr_t search_free_pages(int npages){
-    paddr_t addr = 0;
-    int found = 0;
-
-    for (int i=0; i<num_ram_frames; i++){
-        if (coremap[i].type == UNTRACKED_ENTRY || coremap[i].type == FREED_ENTRY){
-            found = i;
-            for (int j=i; j<i+npages; j++){
-                if (coremap[j].type != UNTRACKED_ENTRY && coremap[j].type != FREED_ENTRY){
-                    found = 0;
-                    break;
-                }
-            }
-        }
-        if (found != 0)
-            break;
-    }
-
-    if (found == 0)
-        return addr;
-    
-    //check if the value is inside boundaries
-    if (found+npages > num_ram_frames)
-        return addr;
-
-    //get the physical address
-    addr = (paddr_t)found * PAGE_SIZE;
-
-    return addr;
-}
-*/
-
-/*
 Memory management functions (replace dumbvm.c)
 */
 
@@ -274,7 +238,7 @@ void free_kpages(vaddr_t addr){
     
     paddr_t padd;
     int start_add;
-    //sub 2GB to convert into physical add
+
     padd = addr - MIPS_KSEG0;
     start_add = padd / PAGE_SIZE;
     //lenght of frames to free was set into first page
@@ -364,7 +328,6 @@ paddr_t getppage_user(vaddr_t vadd){
                 panic("swap out failed\n");
 
             spinlock_acquire(&coremap_lock);
-            //pt è in as, chiama pt_swap_out con quella pt, vadd e offset di swap
             lock_acquire(as->pt_lock);
             pt_swap_out(as->pt, coremap[victim_tmp].vaddr, offset);
             lock_release(as->pt_lock);
@@ -432,7 +395,7 @@ void freeppage_user(paddr_t paddr){
             }
         }
         else {
-            //other element before it in queue
+            //other elements before it in queue
             if (coremap[found].next_allocated == invalid_ref){
                 //last one --> shift backward
                 coremap[coremap[found].prev_allocated].next_allocated = invalid_ref;
