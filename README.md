@@ -6,7 +6,7 @@ Programmazione di Sistema A.Y. 2022/2023
 - Giulia Golzio (<a href="https://github.com/jelly1600" target="_blank">@jelly1600</a>)
 
 
-## Introduction and Theorical Info
+## Introduction and Theoretical Info
 - This is our implementation for **Project C1 (Paging)** of *pds_progetti_2023*. The provided set of files replaces the memory management defined in *dumbvm.c*, creating a new method based on on-demand pages requests, page tables and TLB usage, both with correct replacement and page swap-out/in algorithms
 - The chosen variant of the project is **C1.1**, so we used per-process Page Tables; for the *empty regions* problem we used a linked list of segments
 - **TLB** is unique inside our system and it is reserved for the current execuiting process, that is means the TLB must be invalidated at every context-swtiching
@@ -17,10 +17,15 @@ We divided our work in 3 main areas: **TLB management**, **On-demand page loadin
 - For code sharing we used a GitHub repository, connected to the provided os161 Docker container 
 - <a href="https://github.com/ed0sh/PoliTo-OS161-Project" target="_blank">Link to repository</a> 
 
+### Virtual Memory and Paging
+Virtual Memory is a method of abstracting the memory, with the aim of making it bigger and indipendent from the physical memory; it uses both RAM and storage space.
+With Paging the physical memory is divided into "frames" and the virtual (or logical) memory into "pages": they have same dimension and each page can be related to one frame at a time. The mapping from logical to physical is made throgh structures named page tables.
+Previously in os161 there was a basic virtual memory management module (`dumbvm`); in our project we will completely replace it with a more powerful one, based on Paging.
+
 ### Files and Implementation
 Note: all of new files are defined in kern/vm, while the headers file in kern/include. The changes to already existing are inclosed in `#if OPT_PAGING`.
 
-#### List of new files
+#### List of new files:
 - coremap.c
 - my_vm.c
 - pt.c
@@ -29,7 +34,7 @@ Note: all of new files are defined in kern/vm, while the headers file in kern/in
 - vm_tlb.c
 - vmstats.c
 
-#### List of modified files
+#### List of modified files:
 - addrspace.c
 - runprogram.c
 - loadelf.c
