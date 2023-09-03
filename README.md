@@ -12,18 +12,15 @@ Programmazione di Sistema A.Y. 2022/2023
 - **TLB** is unique inside our system and it is reserved for the current execuiting process, that is means the TLB must be invalidated at every context-swtiching
 
 ### Group management
-We divided our work in 3 main areas: **TLB management**, **On-demand page loading** and **Page replacement**; each one of these was assigned to one of us who worked on his own. Every one or two days we did a online meeting where we updated the other members on our progresses and we worked together in parts of the code that had a conncection between two or more different work areas. When the code parts was about to finish we started to create stats and test our code, with provided programs (*and new ones created on purpose?*)
+We divided our work in 3 main areas: **TLB management**, **On-demand page loading** and **Page replacement**; each one of these was assigned to one of us who worked on his own. Every one or two days we did a online meeting where we updated the other members on our progresses and we worked together in parts of the code that had a connection between two or more different work areas. When the code parts was about to finish we started to create stats and test our code, with provided programs (*and new ones created on purpose?*)
 
 - For code sharing we used a GitHub repository, connected to the provided os161 Docker container 
 - <a href="https://github.com/ed0sh/PoliTo-OS161-Project" target="_blank">Link to repository</a> 
 
-## Pages and Virtual Memory
-*Introduzione teorica al paging e a come funziona il tutto*
+### Files and Implementation
+Note: all of new files are defined in kern/vm, while the headers file in kern/include. The changes to already existing are inclosed in `#if OPT_PAGING`.
 
-## Files and Implementation
-`Note: all of new files are defined in kern/vm, while the headers file in kern/include. The changes to already existing are inclosed in #if OPT_PAGING`
-
-### List of new files
+#### List of new files
 - coremap.c
 - my_vm.c
 - pt.c
@@ -32,7 +29,7 @@ We divided our work in 3 main areas: **TLB management**, **On-demand page loadin
 - vm_tlb.c
 - vmstats.c
 
-### List of modified files
+#### List of modified files
 - addrspace.c
 - runprogram.c
 - loadelf.c
@@ -41,21 +38,27 @@ We divided our work in 3 main areas: **TLB management**, **On-demand page loadin
 # TLB Management
 
 ## Data structure
-In os/161 the Translation Lookaside Buffer is made of 64 entries, dimension defined by *NUM_TLB* in *tlb.h*. Each entry is composed by:
+In os/161 the Translation Lookaside Buffer is made of 64 entries, dimension defined by `NUM_TLB` in `tlb.h`. Each entry is composed by:
 - a 20-bit virtual page number; 
 - a 20-bit physical page number;
 - some fields of which we will use only two: the validity bit and the dirty bit. The first is used to ensure that the virtual page is present in physical memory; the second is set if the page can be modified.
 
 ## Core concepts
-Concerning the management of the TLB, we made use some of the functions declared inside *tlb.h* (*tlb_probe*, *tlb_read*, *tlb_write*) and of some defined constants (*NUM_TLB*, *TLBLO_VALID*, *TLBLO_DIRTY*).
-We wrote in file *vm_tlb.c* the following functions:
-- *tlb_get_rr_victim(...)*
-- *tlb_load(...)*
-- *tlb_invalidate(...)*
-- *tlb_invalidate_entry(...)*
+Concerning the management of the TLB, we made use of some of the functions declared inside `tlb.h` (such as `tlb_probe`, `tlb_read` and `tlb_write`) and of some defined constants (in particular `NUM_TLB`, `TLBLO_VALID` and `TLBLO_DIRTY`).
+We wrote in file `vm_tlb.c` the following functions, used to manage the TLB:
+- `int tlb_get_rr_victim(void)`
+- `void tlb_load(uint32_t entryhi, uint32_t entrylo, uint32_t perm)`
+- `void tlb_invalidate(void)`
+- `void tlb_invalidate_entry(vaddr_t vaddr)`
+
+Concerning the VM management in general, we wrote the following functions inside file `my_vm.c`:
+- `void vm_bootstrap(void)`
+- `void vm_shutdown(void)`
+- `void vm_tlbshootdown(const struct tlbshootdown *ts)`
+- `void vm_can_sleep(void)`
 
 ### TLB Load New Entry
-The *tlb_get_rr_victim* implements a round-robin replacement policy and it returns an index indicating the next chosen victim:
+The function `tlb_get_rr_victim` implements a round-robin replacement policy and it returns an index indicating the next chosen victim:
 ```c
 int tlb_get_rr_victim(void) {
     int victim;
@@ -66,11 +69,11 @@ int tlb_get_rr_victim(void) {
 }
 ```
 
-In *tlb_load* we managed the loading of a new entry inside the TLB:
-- if there is unused space we place the new entry there; a slot is "unused" if the validity bit *TLBLO_VALID* isn't set;
-- otherwise, when the table is full, we choose a new victim with the round-robin algorithm, depicted above.
+In `tlb_load` we managed the loading of a new entry inside the TLB:
+- if there is unused space we place the new entry there; a slot is "unused" if the validity bit `TLBLO_VALID` isn't set;
+- otherwise, if the table is full, we choose a new victim with the round-robin algorithm, depicted above.
 
-We gave particular attention to the case when the virtul address passed to the *vm_fault* and then to the *tlb_load* is already present in an entry of the table: in this case we take as victim such entry, to surely avoid repeated virtual addresses inside the TLB.
+We gave particular attention to the case when the virtul address passed to `vm_fault` and then to `tlb_load` is already present in an entry of the table: in this case we take as victim such entry, to surely avoid repeated virtual addresses inside the TLB.
 ```c
 index = tlb_probe(entryhi, 0);
 if (index < 0) {
@@ -94,7 +97,7 @@ if (index < 0) {
 tlb_write(entryhi, entrylo, victim);
 ```
 
-Moreover, through the parameter "perm" we discover if the new entry is writable and we take care of it setting the dirty bit *TLBLO_DIRTY*:
+Moreover, through the parameter "perm" we discover if the new entry is writable and we take care of it setting the dirty bit `TLBLO_DIRTY`:
 ```c
 if (perm & PF_W) {
     entrylo = entrylo | TLBLO_DIRTY;
@@ -102,7 +105,7 @@ if (perm & PF_W) {
 ```
 
 ### TLB Invalidation
-The function *tlb_invalidate* is called by *as_activate* to invalidate all the TLB entries. In this way we ensure that after a context switch all TLB entries are "out-of-order": the new currently running process will be forced to load its own entries.
+The function `tlb_invalidate` is called by `as_activate` to invalidate all the TLB entries. In this way we ensure that after a context switch all TLB entries are "out-of-order": the new currently running process will be forced to load its own entries.
 ```c
 // clear all the valid bits
 for(i=0; i<NUM_TLB; i++) {
@@ -110,7 +113,7 @@ for(i=0; i<NUM_TLB; i++) {
 }
 ```
 
-When a page is swapped out from the page table we invalidate the corresponding TLB entry calling *tlb_invalidate_entry*. This function searches in the TLB by virtual address and then invalidates the identified entry:
+Moreover, when a page is swapped out from the page table we invalidate the corresponding TLB entry calling `tlb_invalidate_entry`. This function searches in the TLB by virtual address and then invalidates the identified entry:
 ```c
 // clear the valid bits
 if((i = tlb_probe(vaddr, 0)) >= 0)
@@ -118,18 +121,18 @@ if((i = tlb_probe(vaddr, 0)) >= 0)
 ```
 
 ### TLB Fault
-We handled TLB faults inside *my_vm.c*, with *vm_fault*. This function is called by the OS when a TLB miss occurs:
+We handled TLB faults inside `my_vm.c`, with `vm_fault`. This function is called by the OS when a TLB miss occurs:
 - it panics in case of VM_FAULT_READONLY;
 - it returns EINVAL in case the parameter faulttype is incorrect; 
 - it returns EFAULT in case something is wrong with the current process, the address space or the segment;
-- on success, it loads a new entry inside the TLB calling *tlb_load* and then it returns 0.
+- on success, it loads a new entry inside the TLB calling `tlb_load` and then it returns 0.
 
-The *vm_fault* is also partial responsible for the management of the page table. The page that made the *vm_fault* be called is examined:
+The `vm_fault` is also partial responsible for the management of the page table. The page that made the `vm_fault` be called is examined:
 - if it is a stack-page we set to zero the corresponding memory area;
-- otherwise we analyse it through its *page_status*:
-    - if the page isn't inizialized yet (*page_status* equal to *PT_ENTRY_EMPTY*) we allocate some memory for it, we load it from the ELF program file and we add the new entry in page table;
-    - if the page was swapped-out (*page_status* equal to *PT_ENTRY_SWAPPED_OUT*) we retrive it from the swapfile, performing a swap-in;
-    - if the page is valid (*page_status* equal to *PT_ENTRY_VALID*) we just reload it inside the TLB.
+- otherwise we analyse it through its `page_status`:
+    - if `page_status` equal to `PT_ENTRY_EMPTY`, then the page isn't inizialized yet: we allocate some memory for it, we load it from the ELF program file and we add the new entry in page table;
+    - if `page_status` equal to `PT_ENTRY_SWAPPED_OUT`, then the page was swapped-out: we retrive it from the swapfile, performing a swap-in;
+    - if `page_status` equal to `PT_ENTRY_VALID`, then the page is valid: we just reload it inside the TLB.
 
 ```c
 if (sg->base_vaddr == USERSTACK - sg->mem_size) {       // it's a stack page       
@@ -149,6 +152,27 @@ if (sg->base_vaddr == USERSTACK - sg->mem_size) {       // it's a stack page
 tlb_load((uint32_t)aligned_faultaddress, (uint32_t)paddr, perm);
 
 ```
+
+
+### VM Management
+In order to correctly inizialized our virtual memory, we inizialized the swapfile structure and the virtual memory statistics:
+```c
+void vm_bootstrap(void) {
+    swapfile_init();
+    vmstats_init();
+}
+```
+
+Concerning the correct shutdown of our virtual memory, we destroy the swapfile and then print our statistics:
+```c
+void vm_shutdown(void){
+    swapfile_close();
+    vmstats_print();
+    vmstats_destroy();
+}
+```
+
+In some case we have to check if we are in a context that can sleep and we call the funcion `vm_can_sleep`, declared inside `my_vm`.
 
 # On-demand page loading
 On-demand page loading refers to the feature of modern kernels where process data and code is loaded into physical as needed instead of pre-loading everything at start.<br>
@@ -507,3 +531,12 @@ paddr_t getppage_user(vaddr_t vadd){
     return padd;
 }
 ```
+
+# Statistics
+In order to track several statistics related to the performance of our virtual memory sub-system we made use of a simple vector `stats`. Each element of the structure contains the count of a different statistic and the vector is secured by the lock `stats_lock`. We enumerate the different statistics, to easily increment a specific element of the vector when the `vmstats_increment` is called.
+When our virtual memory is shut down we call `vmstats_print`: this function prints to the kernel the obtained statistics and then make some consistency checks. In case these checks are not respected, the function prints a warning for each equality that doesn't hold. In this case there should be no need to acquire the lock `stats_lock`, but we still do it to add a layer of security.
+Lastly, `vmstats_destroy` is called and the lock is destroyed.
+
+# Debug
+To debug this project we mostly made use of gdb from command line and sometimes we used the classic debugger through VisualStudio Code.
+Moreover, we used another option (`OPT_DEBUG_PAGING`) to enclose some parts of the code which are used only to check the proper behaviour of some of our functions.

@@ -87,9 +87,9 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
         return EFAULT;
     }
 
-    if (sg->base_vaddr == USERSTACK - sg->mem_size) {   // it's a stack page
+    if (sg->base_vaddr == USERSTACK - sg->mem_size) {       // it's a stack page
         
-        paddr = getppage_user(aligned_faultaddress);            // allocate memory 
+        paddr = getppage_user(aligned_faultaddress);
         bzero((void *)PADDR_TO_KVADDR(paddr), PAGE_SIZE);
         vmstats_increment(VMSTATS_PAGE_FAULTS_ZEROED);
     
@@ -103,19 +103,19 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
         lock_release(as->pt_lock);
 
         if (page_status == PT_ENTRY_EMPTY) {                // not-initialized (0)
-            paddr = getppage_user(aligned_faultaddress);            // allocate memory 
+            paddr = getppage_user(aligned_faultaddress); 
 
             load_page_from_elf(sg, faultaddress, paddr);
 
             lock_acquire(as->pt_lock);  
-            pt_add_entry(pt, faultaddress, paddr, perm);    // add entry in pt  
+            pt_add_entry(pt, faultaddress, paddr, perm);
             lock_release(as->pt_lock);
             
             vmstats_increment(VMSTATS_PAGE_FAULTS_ELF);
             vmstats_increment(VMSTATS_PAGE_FAULTS_DISK);
 
-        } else if (page_status == PT_ENTRY_SWAPPED_OUT) {   // swapped-out (1): retrive it from swapfile 
-            paddr = getppage_user(aligned_faultaddress);            // allocate memory 
+        } else if (page_status == PT_ENTRY_SWAPPED_OUT) {   // swapped-out (1)
+            paddr = getppage_user(aligned_faultaddress);
             lock_acquire(as->pt_lock);  
 
             swap_offset = pt_get_page_swapfile_offset(pt, faultaddress);
@@ -127,7 +127,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
             vmstats_increment(VMSTATS_PAGE_FAULTS_DISK);
 
         } else if (page_status == PT_ENTRY_VALID) {         // valid (2)
-            // nothing to do // controlla cosa fanno gli altri
+            // nothing to do
             vmstats_increment(VMSTATS_TLB_RELOADS);
         }
 
@@ -140,7 +140,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress) {
     uint32_t v_hi, p_lo;
     uint32_t count_valid = 0;
     uint32_t count_invalid = 0;
-    // check if invalidation is correctly done
+    // check number of valid and invalid TLB entries
     for(int i = 0; i < NUM_TLB; i++) {
         tlb_read(&v_hi, &p_lo, i);
         if (p_lo & TLBLO_VALID) 
