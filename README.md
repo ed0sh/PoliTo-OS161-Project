@@ -12,7 +12,7 @@ Programmazione di Sistema A.Y. 2022/2023
 - **TLB** is unique inside our system and it is reserved for the current execuiting process, that is means the TLB must be invalidated at every context-swtiching
 
 ### Group management
-We divided our work in 3 main areas: **TLB management**, **On-demand page loading** and **Page replacement**; each one of these was assigned to one of us who worked on his own. Every one or two days we did a online meeting where we updated the other members on our progresses and we worked together in parts of the code that had a connection between two or more different work areas. When the code parts was about to finish we started to create stats and test our code, with provided programs (*and new ones created on purpose?*)
+We divided our work in 3 main areas: **TLB management**, **On-demand page loading** and **Page replacement**; each one of these was assigned to one of us who worked on his own. Every one or two days we did a online meeting where we updated the other members on our progresses and we worked together in parts of the code that had a connection between two or more different work areas. When the code parts was about to finish we started to create stats and test our code, with provided programs.
 
 - For code sharing we used a GitHub repository, connected to the provided os161 Docker container 
 - <a href="https://github.com/ed0sh/PoliTo-OS161-Project" target="_blank">Link to repository</a> 
@@ -265,11 +265,11 @@ We decided to implement those segments as a linked list, in order to address the
 
 typedef struct _segment {
     uint32_t perm;
-    vaddr_t base_vaddr;         // Aligned vaddr
-    off_t base_vaddr_offset;    // The offset coming from the alignment
+    vaddr_t base_vaddr;
+    off_t base_vaddr_offset;
     off_t file_offset;
     size_t file_size;
-    size_t mem_size;            // Size of data to be loaded into memory
+    size_t mem_size;
     size_t num_pages;
     struct _segment *next_segment;
 } segment;
@@ -289,12 +289,12 @@ Each segment is composed by a set of properties that we briefly describe:
 Segments are defined in the first - and now the only - complete read of the ELF file inside the `load_elf(...)`.
 
 The `as_define_region(...)` is responsible for correctly setting the previously defined fields, but only for *data* and *code*.<br>
-The stack segment insted is created by calling `as_define_stack(...)` from `runprogram(...)`.
+The stack segment instead is created by calling `as_define_stack(...)` from `runprogram(...)`.
 
 The entire segment linked list is deallocated together with the process address space by calling `segments_destroy_linked_list(...)` inside `as_destroy(...)`.
 
 ## Address space
-A basic implementation of the process address space would simply require the three program main segments, but in order to support on-demand page loading some other structures are required.
+A basic implementation of the process address space would simply require the three program main segments, but other structures are needed to implement on-demand page loading.
 
 ### Data structure
 We chose to entirely reinvent the previously specified `struct addrspace` starting from scratch.
@@ -312,24 +312,24 @@ struct addrspace {
 };
 ```
 
-As described in the "**Segments**" section, we defined the three program segments as a linked list, where the head of that list is `segment *segments`.
+As described in the [**Program segments**](README.md#program-segments) section, we defined the three program segments as a linked list, where the head of that list is `segment *segments`.
 
-Another choice we already discussed is the use of a per-process page table. Here we can find its usage as `pagetable *pt` along with its dimension `size_t pt_num_pages` and a lock `struct lock *pt_lock` that avoid operations to be performed on it simultaneously.
+We've already talked about using a per-process page table. Here, we can see its usage as a `pagetable *pt`, coupled with its dimension `size_t pt_num_pages` and a lock `struct lock *pt_lock` that prevents operations to be performed on it simultaneously.
 
-We also included a pointer to the program vnode `struct vnode *v` in order to be able to load pages once required.
+In order to load pages when needed, we also included a pointer to the program vnode `struct vnode *v`.
 
 Finally, the program name `char *progname` is principally used while in `as_copy(...)`.
 
 ### Core concepts
 #### Initialization and deallocation
-The `struct addrspace` is initialized inside the function `as_create(...)`, whose main tasks are the struct allocation (using teh kmalloc) and the creation of the lock `pt_lock`.
+The `struct addrspace` is initialized inside the function `as_create(...)`, whose main tasks are the struct allocation (using the kmalloc) and the creation of the lock `pt_lock`.
 
-Deallocation happens inside `as_destroy(...)` which: closes the open vnode by calling `vfs_close(as->v)`, destroys the page table `pt_destroy(as->pt)` and its lock `lock_destroy(as->pt_lock)`, deallocates the list of segments with `segments_destroy_linked_list(as->segments)` and finally frees the memory allocated for the struct itself with `kfree(as)`.
+Deallocation happens inside `as_destroy(...)`, which: closes the open vnode by calling `vfs_close(as->v)`, destroys the page table `pt_destroy(as->pt)` and its lock `lock_destroy(as->pt_lock)`, deallocates the list of segments with `segments_destroy_linked_list(as->segments)` and finally frees the memory allocated for the struct itself with `kfree(as)`.
 
 #### Page table initialization
 The page table can't be initialized along with the address space, it needs the total number of pages that will compose its vector of pages.<br>
-As described in the "**Segments**" section, the `as_define_region(...)` adds to the address space segments linked list the newly defined segments with the information acquired in each loop of the `load_elf(...)`, including the number of pages of each segment.<br>
-Once the `load_elf(...)` loop has ended and all the regions have been defined, the `as_prepare_load(...)` is then called. This function core task is the definition of the page table.
+As described in the [**Program segments**](README.md#program-segments)  section, the `as_define_region(...)` appends to the address space segments the newly defined ones, along with the information acquired in each loop of the `load_elf(...)`.<br>
+Once the `load_elf(...)` loop has ended and all the regions have been defined, the `as_prepare_load(...)` is then called. The core task of this function is to the define and initialize the page table.
 ```c
 /* kern/vm/addrspace.c - as_prepare_load(...) */
 [...]
@@ -368,7 +368,7 @@ lock_release(as->pt_lock);
 
 #### Stack definition
 The stack segment is treated differently from the other two segments, it has pre-defined permissions, virtual address, sizes and offsets.<br>
-Its definition is performed in the `as_define_stack(...)`, which is called by the `runprogram(...)` once the `load_elf(...)` correctly terminated.
+Its definition is performed in the `as_define_stack(...)`, which is called by the `runprogram(...)` once the `load_elf(...)` is correctly terminated.
 
 ```c
 /* kern/include/addrspace.h */
@@ -390,14 +390,15 @@ if (as_define_region(as, USERSTACK - stack_size, stack_size, (PF_W | PF_R), 0, 0
 
 #### Runprogram
 The `runprogram(...)` function is the one responsible for defining the address space and initializing it with the data read from the ELF file.<br>
-The main changes we made to it are: the relocation of the `vfs_open(...)` from this function to the `as_create(...)` and the relocation od the `vfs_close(...)` from this function to the `as_destroy(...)`.
+The main changes we made are: the relocation of the `vfs_open(...)` from this function to the `as_create(...)` and the relocation od the `vfs_close(...)` from this function to the `as_destroy(...)`.
 
 #### Load ELF
-The `load_elf(...)` function is now no more the one that actually load into memory the program code and data, but it only defines the program segments inside the address space.
+The `load_elf(...)` function no longer loads the program code and data into memory, but instead just defines the program segments inside the address space..
 
 We wrote a new function to read data from the elf file and load *maximum* one page at a time into memory. <br>
-Its signature is `load_page_from_elf(segment *seg, vaddr_t vaddr, paddr_t paddr)` and it's called only after a tlb fault by `vm_fault(...)` in those cases where the page is not in the page table nor in the swap space.<br>
-The main task that it performs is the calculation of the arguments needed by the `load_segment(...)` (which also underwent minor changes) that are:
+Its signature is `load_page_from_elf(segment *seg, vaddr_t vaddr, paddr_t paddr)` and it's called only after a tlb fault, where the page is not in the page table nor in the swap space, by the `vm_fault(...)`.<br>
+The main task of the `load_elf(...)` is the computation of the arguments needed by the `load_segment(...)` (which also underwent minor changes). 
+Those arguments are:
 * the target virtual address (where the data will be loaded);
 * the offset (the location to begin reading from) inside the elf file;
 * the file size (the amount of data to be read) and the memory size (the amount of data that will be loaded into memory).
@@ -538,8 +539,12 @@ paddr_t getppage_user(vaddr_t vadd){
 ```
 
 # Statistics
-In order to track several statistics related to the performance of our virtual memory sub-system we made use of a simple vector `stats`. Each element of the structure contains the count of a different statistic and the vector is secured by the lock `stats_lock`. We enumerate the different statistics, to easily increment a specific element of the vector when the `vmstats_increment` is called.
-When our virtual memory is shut down we call `vmstats_print`: this function prints to the kernel the obtained statistics and then make some consistency checks. In case these checks are not respected, the function prints a warning for each equality that doesn't hold. In this case there should be no need to acquire the lock `stats_lock`, but we still do it to add a layer of security.
+In order to track several statistics related to the performance of our virtual memory sub-system we made use of a simple vector `stats`. <br>
+Each element of the structure contains the count of a different statistic and the vector is secured by the lock `stats_lock`.<br>
+We enumerated the different statistics, to easily increment a specific element of the vector when the `vmstats_increment` is called.
+
+When our virtual memory is shut down we call `vmstats_print`: this function prints to the kernel the obtained statistics and then make some consistency checks.<br>
+In case these checks are not respected, the function prints a warning for each equality that doesn't hold. In this case there should be no need to acquire the lock `stats_lock`, but we still do it to add a layer of security.<br>
 Lastly, `vmstats_destroy` is called and the lock is destroyed.
 
 # Debug
